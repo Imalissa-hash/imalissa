@@ -15,3 +15,6 @@ backups/
 # imagery and MUST ship with the code (deployed site would break otherwise).
 /uploads/
 !public/uploads/.gitkeep
+
+# Local deploy hand-off file: contains secrets, never committed.
+deploy/render-env.txt
