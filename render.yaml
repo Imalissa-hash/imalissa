@@ -1,0 +1,72 @@
+# Imalissa — Render web service (free tier, no credit card).
+# Deploy: push this repo to GitHub → Render → New → Web Service → repo →
+# it picks this file up automatically (or fill the form manually).
+services:
+  - type: web
+    name: imalissa
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Next build inside the free 512 MB instance.
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=440
+      # Public URL of the live site — change to https://imalissa.page.gd
+      # once the custom domain is attached.
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://imalissa.onrender.com
+      - key: NEXT_PUBLIC_SITE_NAME
+        value: Imalissa
+      # Secrets — pasted in the Render dashboard (Environment tab).
+      # deploy/render-env.txt holds the values locally; it is git-ignored.
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        sync: false
+      - key: EXTERNAL_COMMERCE_MODE
+        sync: false
+      - key: EXTERNAL_COMMERCE_BASE_URL
+        sync: false
+      - key: EXTERNAL_COMMERCE_API_KEY
+        sync: false
+      - key: EXTERNAL_COMMERCE_API_SECRET
+        sync: false
+      - key: EXTERNAL_COMMERCE_TIMEOUT_MS
+        sync: false
+      - key: BKASH_APP_KEY
+        sync: false
+      - key: BKASH_APP_SECRET
+        sync: false
+      - key: BKASH_BASE_URL
+        sync: false
+      - key: NAGAD_MERCHANT_ID
+        sync: false
+      - key: NAGAD_PRIVATE_KEY
+        sync: false
+      - key: NAGAD_PUBLIC_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: OTP_DEV_MODE
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

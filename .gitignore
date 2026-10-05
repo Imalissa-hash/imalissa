@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+build/
+.env
+.env.local
+.env.production
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+npm-debug.log*
+# Local database dumps — contain customer data, never committed.
+backups/
+# Root-level scratch uploads only — public/uploads is REAL product/brand
+# imagery and MUST ship with the code (deployed site would break otherwise).
+/uploads/
+!public/uploads/.gitkeep

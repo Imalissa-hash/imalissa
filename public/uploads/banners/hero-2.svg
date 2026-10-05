@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720">
+  <defs>
+    <linearGradient id="bg" gradientTransform="rotate(150)">
+      <stop offset="0%" stop-color="#17171d"/>
+      <stop offset="50%" stop-color="#0d0d10"/>
+      <stop offset="100%" stop-color="#060607"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fdf8ec"/>
+      <stop offset="45%" stop-color="#e3b452"/>
+      <stop offset="100%" stop-color="#b8942c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="72%" cy="45%" r="42%">
+      <stop offset="0%" stop-color="#d4af37" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#d4af37" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="720" fill="url(#bg)"/>
+  <rect width="1600" height="720" fill="url(#glow)"/>
+  <path d="M0 720 L720 0 L927.9999999999999 0 L0 720 Z" fill="#d4af37" fill-opacity="0.05"/>
+  <circle cx="1380" cy="360" r="190" fill="none" stroke="#d4af37" stroke-opacity="0.25" stroke-width="2"/>
+  <circle cx="1380" cy="360" r="150" fill="none" stroke="#d4af37" stroke-opacity="0.12" stroke-width="1"/>
+  
+  <text x="90" y="244.8" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#d4af37" letter-spacing="8">IMALISSA PRESENTS</text>
+  <text x="90" y="360" font-family="Georgia, serif" font-size="76" font-weight="700" fill="url(#gold)">New Season New Style</text>
+  <text x="90" y="446.4" font-family="Arial, sans-serif" font-size="26" fill="#b3b3bb">Fresh arrivals for men, women &amp; kids</text>
+  <rect x="90" y="503.99999999999994" width="240" height="64" rx="8" fill="url(#gold)"/>
+  <text x="210" y="544" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#14100a" letter-spacing="2">SHOP NOW</text>
+  <text x="1520" y="680" text-anchor="end" font-family="Georgia, serif" font-size="26" fill="#d4af37" letter-spacing="6" opacity="0.7">IMALISSA</text>
+</svg>

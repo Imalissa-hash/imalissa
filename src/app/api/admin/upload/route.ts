@@ -1,0 +1,76 @@
+import { NextRequest } from "next/server";
+import { mkdirSync, writeFileSync } from "fs";
+import path from "path";
+import { withApi, jsonOk, rateLimit, clientIp } from "@/lib/api";
+import { requireAdmin } from "@/lib/admin-auth";
+import { audit } from "@/lib/audit";
+import { badRequest } from "@/lib/errors";
+
+export const dynamic = "force-dynamic";
+
+/** Whitelisted upload folders → public/uploads/<dir>. */
+const DIRS = ["products", "categories", "banners", "brands", "settings"] as const;
+type UploadDir = (typeof DIRS)[number];
+
+/** Allowed image mimes → canonical extension (extension is derived from the
+ *  mime type, never from the client-supplied filename). */
+const MIME_EXT: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/svg+xml": ".svg",
+};
+
+const MAX_BYTES = 4 * 1024 * 1024; // 4MB
+
+/** POST /api/admin/upload — multipart upload of a single image ("file" field).
+ *  Query: ?dir=products|categories|banners|brands (default: products). */
+export const POST = withApi(async (req: NextRequest) => {
+  rateLimit(`admin-upload:${clientIp(req)}`, 30, 60_000);
+  const admin = await requireAdmin();
+
+  const dirParam = new URL(req.url).searchParams.get("dir") ?? "products";
+  if (!DIRS.includes(dirParam as UploadDir)) {
+    throw badRequest(`Invalid upload folder — use one of: ${DIRS.join(", ")}`);
+  }
+  const dir = dirParam as UploadDir;
+
+  const form = await req.formData().catch(() => null);
+  const entry = form?.get("file");
+  if (!entry || typeof entry === "string") {
+    throw badRequest('No file received — send it as multipart field "file"');
+  }
+  if (entry.size === 0) throw badRequest("The file is empty");
+  if (entry.size > MAX_BYTES) throw badRequest("File is too large — the maximum size is 4MB");
+
+  const ext = MIME_EXT[entry.type];
+  if (!ext) throw badRequest("Unsupported file type. Allowed: JPEG, PNG, WebP, GIF, SVG");
+
+  // Sanitize the stem: strip any path/extension, keep URL-safe chars only.
+  const stem =
+    (entry.name || "image")
+      .replace(/\.[^.]+$/, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "image";
+  const name = `${Date.now()}-${stem}${ext}`;
+
+  const dirPath = path.join(process.cwd(), "public", "uploads", dir);
+  mkdirSync(dirPath, { recursive: true });
+  const bytes = Buffer.from(await entry.arrayBuffer());
+  writeFileSync(path.join(dirPath, name), bytes);
+
+  await audit({
+    adminId: admin.id,
+    action: "ASSET_UPLOAD",
+    entityType: "Upload",
+    entityId: `${dir}/${name}`,
+    details: { dir, name, size: entry.size, type: entry.type },
+    ip: clientIp(req),
+    userAgent: req.headers.get("user-agent"),
+  });
+
+  return jsonOk({ url: `/uploads/${dir}/${name}` });
+});
