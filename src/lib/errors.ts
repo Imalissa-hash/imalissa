@@ -42,13 +42,31 @@ function databaseMessage(err: unknown): { status: number; message: string } | nu
   const code = (err as { code?: unknown }).code;
   // Only Prisma request codes (P2002, P2024, P1001, …) — never ENOENT etc.
   if (typeof code !== "string" || !/^P\d{3,4}$/.test(code)) {
-    // Engine never started / cannot connect.
-    return err.name === "PrismaClientInitializationError"
-      ? {
+    // Prisma failures that carry a class name instead of a P-code.
+    switch (err.name) {
+      // Engine never started / cannot connect.
+      case "PrismaClientInitializationError":
+        return {
           status: 503,
           message: "Could not reach the database just now. Please try again in a few seconds.",
-        }
-      : null;
+        };
+      // Query arguments did not match the schema (bad value reached Prisma).
+      case "PrismaClientValidationError":
+        return {
+          status: 400,
+          message: "Some of the data sent was invalid. Check the form and try again.",
+        };
+      // Engine-level failure — retryable, but not the user's doing.
+      case "PrismaClientUnknownRequestError":
+      case "PrismaClientRustPanicError":
+      case "PrismaClientCancellationError":
+        return {
+          status: 503,
+          message: "The server hit a database problem just now. Please try again in a few seconds.",
+        };
+      default:
+        return null; // not a database error → generic message below
+    }
   }
 
   switch (code) {
@@ -103,6 +121,29 @@ function databaseMessage(err: unknown): { status: number; message: string } | nu
       return {
         status: 503,
         message: "Could not reach the database just now. Please try again in a few seconds.",
+      };
+    // Missing / null value for a required field.
+    case "P2011":
+    case "P2012":
+    case "P2013":
+    case "P2020":
+    case "P2023":
+    case "P2027":
+      return { status: 400, message: "Some of the data sent was invalid. Check the form and try again." };
+    // A required related record is missing or was deleted meanwhile.
+    case "P2014":
+    case "P2015":
+    case "P2017":
+      return {
+        status: 400,
+        message: "A record this action needs no longer exists. Refresh the page and try again.",
+      };
+    // Transaction could not be started / conflict — worth retrying.
+    case "P2026":
+    case "P2028":
+      return {
+        status: 503,
+        message: "The save could not be completed just now. Please try again in a few seconds.",
       };
     default:
       return null; // unknown code → generic message, full error stays in the server log

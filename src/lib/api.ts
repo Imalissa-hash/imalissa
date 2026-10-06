@@ -91,6 +91,40 @@ export function parseBody<T>(schema: ZodSchema<T>, body: unknown): T {
 }
 
 /**
+ * Record a server-side failure where it can actually be read back later.
+ *
+ * Render's log stream is not visible to us, so when a handler dies with the
+ * generic 500 the cause was impossible to diagnose after the fact. This writes
+ * one AuditLog row (action `API_ERROR`) with the route and the error
+ * name/code/message — server-side only; the client still receives just the
+ * generic message from publicMessage(). Request bodies are never stored
+ * (login and checkout payloads carry credentials and personal data).
+ */
+async function recordServerError(req: NextRequest, err: unknown): Promise<void> {
+  try {
+    const e = err as { name?: string; code?: unknown; message?: string };
+    const code = typeof e?.code === "string" ? e.code : null;
+    const summary =
+      err instanceof Error
+        ? `${e?.name || "Error"}${code ? `(${code})` : ""}: ${(e?.message || "").slice(0, 600)}`
+        : `non-error thrown: ${String(err).slice(0, 600)}`;
+    const { prisma } = await import("./db");
+    await prisma.auditLog.create({
+      data: {
+        action: "API_ERROR",
+        entityType: "Api",
+        entityId: `${req.method} ${new URL(req.url).pathname}`,
+        details: { error: summary },
+        ip: clientIp(req),
+        userAgent: req.headers.get("user-agent")?.slice(0, 255) ?? null,
+      },
+    });
+  } catch {
+    // the error path must never throw a second time
+  }
+}
+
+/**
  * Wrap a route handler with unified error handling + same-origin check.
  * Usage:
  *   export const POST = withApi(async (req) => { ... return jsonOk(...) })
@@ -108,6 +142,7 @@ export function withApi<T>(
       return await handler(req, ctx);
     } catch (err) {
       const { status, message } = publicMessage(err);
+      if (status >= 500) await recordServerError(req, err);
       const details = err instanceof ApiError ? err.details : undefined;
       return jsonError(status, message, details);
     }
