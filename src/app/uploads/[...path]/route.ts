@@ -58,7 +58,33 @@ async function serve(req: NextRequest, ctx: Ctx, withBody: boolean) {
   if (!filePath.startsWith(uploadsRoot + path.sep)) return notFound();
 
   const stat = await fsp.stat(filePath).catch(() => null);
-  if (!stat?.isFile()) return notFound();
+  if (!stat?.isFile()) {
+    // Local dev shares the production database (see .env PUBLIC_ASSET_BASE_URL),
+    // so a product can reference an image that only exists on the live host.
+    // Fetch it once from there and keep a local copy; unset on Render, so the
+    // live site never calls itself.
+    const base = process.env.PUBLIC_ASSET_BASE_URL;
+    if (base) {
+      const upstream = await fetch(
+        `${base.replace(/\/$/, "")}/uploads/${segments[0]}/${segments[1]}`,
+        { signal: AbortSignal.timeout(8000) }
+      ).catch(() => null);
+      if (upstream?.ok) {
+        const buf = await upstream.arrayBuffer().catch(() => null);
+        const bytes = buf ? Buffer.from(buf) : Buffer.alloc(0);
+        if (bytes.length) {
+          // best-effort local cache so the next request is served from disk
+          await fsp.mkdir(path.dirname(filePath), { recursive: true }).catch(() => {});
+          await fsp.writeFile(filePath, bytes).catch(() => {});
+          return new NextResponse(bytes, {
+            status: 200,
+            headers: { "Content-Type": type, "Cache-Control": CACHE_CONTROL },
+          });
+        }
+      }
+    }
+    return notFound();
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": type,
