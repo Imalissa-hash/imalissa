@@ -16,6 +16,9 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     optimizePackageImports: ["lucide-react", "framer-motion"],
+    // One static-generation worker: every worker opens its own Prisma pool and
+    // the shared MySQL only allows 46 connections (see src/lib/db.ts).
+    cpus: 1,
   },
   async headers() {
     return [
