@@ -241,8 +241,11 @@ model Product {
   name             String
   slug             String        @unique
   sku              String        @unique
-  shortDescription String?
-  description      String?
+  // text columns are sized to the limits the API form already enforces
+  // (textOrNull in the products routes) — with the Prisma/MySQL default of
+  // VARCHAR(191) every longer value died with P2000 "value too long".
+  shortDescription String?     @db.VarChar(500)
+  description      String?     @db.Text
   brandId          String?
   categoryId       String
 
@@ -269,15 +272,15 @@ model Product {
   // Variant dimension values as JSON-encoded string arrays
   // (e.g. '["Black","Gold"]' / '["S","M","L"]') — stored as text so they
   // can be LIKE-filtered by the product filters.
-  colors           String?
-  sizes            String?
+  colors           String?     @db.Text
+  sizes            String?     @db.Text
 
   specifications   Json?
   shippingInfo     String?
   returnInfo       String?
 
-  seoTitle         String?
-  seoDescription   String?
+  seoTitle         String?     @db.VarChar(200)
+  seoDescription   String?     @db.VarChar(400)
 
   // External (boss's API) product linkage — mapped once real API is known
   externalProductId String?

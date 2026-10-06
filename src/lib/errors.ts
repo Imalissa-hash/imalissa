@@ -27,6 +27,28 @@ export const serverError = (msg = "Something went wrong. Please try again.") =>
 export const notConfigured = (msg = "This integration is not configured yet") =>
   new ApiError(503, msg);
 
+/** Column name → the label the admin form shows, for P2000 messages. */
+const COLUMN_LABELS: Record<string, string> = {
+  shortDescription: "Short description",
+  description: "Description",
+  seoTitle: "SEO title",
+  seoDescription: "SEO description",
+  name: "Name",
+  slug: "Slug",
+  sku: "SKU",
+  code: "Code",
+  colors: "Colors",
+  sizes: "Sizes",
+  image: "Image",
+  subtitle: "Subtitle",
+  buttonText: "Button text",
+  link: "Link",
+  icon: "Icon",
+  email: "Email",
+  title: "Title",
+  message: "Message",
+};
+
 /**
  * Known database failures → an honest, actionable message.
  *
@@ -70,6 +92,19 @@ function databaseMessage(err: unknown): { status: number; message: string } | nu
   }
 
   switch (code) {
+    // Value longer than the column holds (e.g. a description pasted past the
+    // table's limit) — the form's own max is wider than the DB's, so tell the
+    // user which field to shorten instead of failing with a generic 500.
+    case "P2000": {
+      const column = /Column:\s*(\w+)/.exec(err.message)?.[1];
+      const field = column ? COLUMN_LABELS[column] : undefined;
+      return {
+        status: 400,
+        message: field
+          ? `${field} is too long for the database — shorten it and try again.`
+          : "One of the fields is too long for the database — shorten it and try again.",
+      };
+    }
     // Unique constraint — the pre-flight check lost a race (double submit).
     case "P2002":
       return {
