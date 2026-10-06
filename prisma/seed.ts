@@ -864,7 +864,7 @@ async function seedAdmin() {
     create: {
       email,
       name,
-      passwordHash: hashSync(password, 12),
+      passwordHash: hashSync(password, 10),
       role: "SUPER_ADMIN",
     },
   });
@@ -888,7 +888,7 @@ async function seedCustomersAndReviews() {
         name: c.name,
         email: c.email,
         phone: c.phone,
-        passwordHash: hashSync("Customer!2026", 12),
+        passwordHash: hashSync("Customer!2026", 10),
       },
     });
     users.push(user);

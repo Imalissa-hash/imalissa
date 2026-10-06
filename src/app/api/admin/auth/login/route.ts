@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { verifyPassword } from "@/lib/auth";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/auth";
 import { startAdminSession } from "@/lib/admin-auth";
 import { unauthorized } from "@/lib/errors";
 import { audit } from "@/lib/audit";
@@ -24,19 +24,28 @@ export const POST = withApi(async (req: NextRequest) => {
   const ok = await verifyPassword(body.password, admin.passwordHash);
   if (!ok) throw unauthorized("Invalid credentials");
 
-  await startAdminSession(admin.id, clientIp(req), req.headers.get("user-agent") ?? undefined);
-  await prisma.adminUser.update({
-    where: { id: admin.id },
-    data: { lastLoginAt: new Date() },
-  });
-  await audit({
-    adminId: admin.id,
-    action: "ADMIN_LOGIN",
-    entityType: "AdminUser",
-    entityId: admin.id,
-    ip: clientIp(req),
-    userAgent: req.headers.get("user-agent"),
-  });
+  // Stored hashes may still be bcrypt cost 12 (~5 s to compare on the live
+  // box). The plaintext is verified right here, so re-hash it to COST=10 and
+  // fold that into the lastLoginAt write instead of paying it every login.
+  const upgraded = needsRehash(admin.passwordHash) ? await hashPassword(body.password) : null;
+
+  // The three writes are independent — running them together turns three
+  // sequential Aiven round trips into one.
+  await Promise.all([
+    startAdminSession(admin.id, clientIp(req), req.headers.get("user-agent") ?? undefined),
+    prisma.adminUser.update({
+      where: { id: admin.id },
+      data: { lastLoginAt: new Date(), ...(upgraded ? { passwordHash: upgraded } : {}) },
+    }),
+    audit({
+      adminId: admin.id,
+      action: "ADMIN_LOGIN",
+      entityType: "AdminUser",
+      entityId: admin.id,
+      ip: clientIp(req),
+      userAgent: req.headers.get("user-agent"),
+    }),
+  ]);
 
   return jsonOk({ id: admin.id, name: admin.name, email: admin.email, role: admin.role });
 });

@@ -5,7 +5,7 @@ import { cookieSecure } from "./utils";
 
 /**
  * Customer authentication.
- * - Passwords: bcrypt (cost 12)
+ * - Passwords: bcrypt — cost 10 for new hashes (see COST below)
  * - Sessions: 32-byte random token, SHA-256 hashed in DB, raw value in an
  *   httpOnly + SameSite=Lax cookie. Knowing the cookie gives no DB access
  *   without the stored hash matching, and DB access gives no cookie without
@@ -19,9 +19,31 @@ export function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
+/**
+ * bcrypt cost for NEW hashes.
+ *
+ * Cost 12 in pure-JS bcryptjs costs ~2.8 s per verify on a desktop and ~5 s
+ * on the Render free instance — that one compare was most of the login time
+ * (measured live: POST /api/admin/auth/login 5–7 s warm). Cost 10 is the
+ * OWASP-recommended minimum for bcrypt and is 4× cheaper. Stored cost-12
+ * hashes still verify (the cost lives inside the hash) and are rewritten to
+ * this setting on the owner's next successful login via `needsRehash`.
+ */
+const COST = 10;
+
 export async function hashPassword(password: string): Promise<string> {
   const bcrypt = await import("bcryptjs");
-  return bcrypt.hash(password, 12);
+  return bcrypt.hash(password, COST);
+}
+
+/**
+ * True when `hash` is a bcrypt hash slower than COST — i.e. worth re-hashing
+ * now that the plaintext is in hand. Only call after a successful verify:
+ * replacing the row discards the previous hash.
+ */
+export function needsRehash(hash: string): boolean {
+  const m = /^\$2[aby]\$(\d{2})\$/.exec(hash);
+  return m ? Number(m[1]) > COST : false;
 }
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {

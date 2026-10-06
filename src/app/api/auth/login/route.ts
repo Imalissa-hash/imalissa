@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { verifyPassword } from "@/lib/auth";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/auth";
 import { badRequest, unauthorized } from "@/lib/errors";
 import { issueOtp } from "@/lib/otp";
 
@@ -35,6 +35,20 @@ export const POST = withApi(async (req: NextRequest) => {
 
   const ok = await verifyPassword(body.password, user.passwordHash);
   if (!ok) throw unauthorized("Invalid credentials. Please try again.");
+
+  // Legacy cost-12 hashes cost seconds to verify; the plaintext is in hand
+  // right now, so upgrade the row for the next login. A failure here must
+  // never block the login itself.
+  if (needsRehash(user.passwordHash)) {
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: await hashPassword(body.password) },
+      });
+    } catch {
+      /* stays on the old hash until the next successful login */
+    }
+  }
 
   if (user.status === "BLOCKED") throw badRequest("Your account has been suspended. Contact support.");
 

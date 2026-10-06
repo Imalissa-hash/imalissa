@@ -1,6 +1,29 @@
 # Imalissa — Render web service (free tier, no credit card).
 # Deploy: push this repo to GitHub → Render → New → Web Service → repo →
 # it picks this file up automatically (or fill the form manually).
+#
+# ── Keep-alive ────────────────────────────────────────────────────────────
+# The free web service sleeps after 15 idle minutes; the next visitor then
+# waits 30-50 s for the cold start. The cron job below pings /robots.txt
+# (static, no database) every 10 minutes so the idle window is never reached.
+#
+# If this repo was set up as a Render **Blueprint**, pushing this file creates
+# the job automatically. If the service was created by hand, add it once:
+#   Render dashboard → New → Cron Job → same repo →
+#     Name: imalissa-keepalive   Runtime: Node   Plan: Free
+#     Schedule: */10 * * * *     Command: node deploy/keepalive.mjs
+#     Env: KEEPALIVE_URL = https://imalissa.onrender.com/robots.txt
+cronJobs:
+  - type: cron
+    name: imalissa-keepalive
+    runtime: node
+    plan: free
+    schedule: "*/10 * * * *"
+    startCommand: node deploy/keepalive.mjs
+    envVars:
+      - key: KEEPALIVE_URL
+        value: https://imalissa.onrender.com/robots.txt
+
 services:
   - type: web
     name: imalissa
