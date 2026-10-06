@@ -69,7 +69,11 @@ export async function HomeSectionRenderer() {
     })
   );
 
-  return <div className="flex flex-col gap-14 sm:gap-16">{jsx}</div>;
+  // Block flow with space-y, not flex: a flex child carrying mx-auto
+  // shrink-wraps (auto cross-margins cancel stretch), so a wide section —
+  // e.g. a product rail — would set the page width and scale the whole
+  // homepage down on phones.
+  return <div className="space-y-14 sm:space-y-16">{jsx}</div>;
 }
 
 /** Slim strip under the hero: department shortcuts. */

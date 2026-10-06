@@ -35,8 +35,12 @@ export default async function HomePage() {
 
   const stripSlugs = tree.map((c) => c.slug).slice(0, 8);
 
+  // Block flow (not flex): these sections use mx-auto + max-w, and a flex
+  // child with auto cross-margins shrink-wraps to its content instead of
+  // stretching — which pushed the homepage to 1400px wide and made phones
+  // render a scaled-down "PC" view. space-y keeps the rhythm.
   return (
-    <div className="flex flex-col gap-14 pb-4 sm:gap-16">
+    <div className="space-y-14 pb-4 sm:space-y-16">
       {/* Hero */}
       <HeroCarousel banners={heroes} />
 
