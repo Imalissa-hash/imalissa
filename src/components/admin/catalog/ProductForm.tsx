@@ -17,6 +17,7 @@ import {
   Td,
 } from "@/components/admin/ui";
 import { formatBDT, salePrice, slugify } from "@/lib/utils";
+import { CategoryPicker } from "./CategoryPicker";
 
 export interface Option {
   id: string;
@@ -393,18 +394,12 @@ export function ProductForm({
             </Select>
           </Field>
           <Field label="Category" error={errors.categoryId}>
-            <Select
-              className="select-dark"
+            <CategoryPicker
+              options={categories}
               value={f.categoryId}
-              onChange={(e) => set("categoryId", e.target.value)}
-            >
-              <option value="">Choose a category…</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {`${"— ".repeat(c.depth)}${c.name}`}
-                </option>
-              ))}
-            </Select>
+              onChange={(id) => set("categoryId", id)}
+              invalid={Boolean(errors.categoryId)}
+            />
           </Field>
           <Field label="Status" hint="Draft = hidden, Active = visible, Archived = retired.">
             <Select className="select-dark" value={f.status} onChange={(e) => set("status", e.target.value)}>
