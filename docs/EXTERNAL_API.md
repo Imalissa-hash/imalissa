@@ -8,10 +8,17 @@ The partner API **is** wired (docs: partner's dropship v1 reference):
 
 | Purpose | Call |
 | --- | --- |
-| Credentials check | `GET {base}/me` → `{ reseller_id, shop_name, serial_number }` |
+| Credentials check | `GET {base}/products` (health probe — see the note below) |
 | Catalog import | `GET {base}/products` → array of products |
 | Order push | `POST {base}/orders` |
 | Status pull | `GET {base}/orders/track?code={order_code}` |
+
+> **Note on `GET {base}/me`** (the partner's documented credentials check):
+> it answers `401 Invalid or inactive API key` to our dropship key while the
+> very same key reads the catalog without complaint — measured 2026-10-07:
+> `/me` → 401, `/products` → 200 with 130 rows. The connection test therefore
+> probes `/products`, the endpoint this integration actually depends on;
+> `/me` may require a profile-scope key we were not issued.
 
 - `{base}` = `https://dropsourcebd.com/api/dropship/v1` (set in Admin → Settings → External API)
 - Auth: `Authorization: Bearer <EXTERNAL_COMMERCE_API_KEY>`

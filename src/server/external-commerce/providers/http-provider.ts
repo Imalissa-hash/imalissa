@@ -18,9 +18,11 @@ import type {
  *
  * Source: the partner's documented endpoints (see docs/EXTERNAL_API.md).
  *
- *   GET  {base}/me                      — reseller/profile check (health)
- *   GET  {base}/products                — full live catalog (used by the
- *                                          admin catalog import, not here)
+ *   GET  {base}/me                      — reseller/profile check (documented,
+ *                                          but rejects our dropship key — see
+ *                                          ENDPOINTS.health below)
+ *   GET  {base}/products                — full live catalog (admin catalog
+ *                                          import, and the health check)
  *   POST {base}/orders                  — push an order from our checkout
  *   GET  {base}/orders/track?code=…     — order status / tracking pull
  *
@@ -53,8 +55,17 @@ const ENDPOINTS = {
   getOrderStatus: { method: "GET", path: "/orders/track?code={externalOrderId}" } as
     | null
     | { method: "GET"; path: string },
-  /** GET — connectivity/credentials check: /me returns reseller info. */
-  health: { method: "GET", path: "/me" } as null | { method: "GET"; path: string },
+  /**
+   * GET — connectivity/credentials check.
+   *
+   * The partner documents `GET /me` for this, but that endpoint answers
+   * 401 "Invalid or inactive API key" to our dropship key while the same key
+   * imports the catalog without complaint (measured: /me → 401, /products →
+   * 200 with 130 rows). Probing the endpoint we actually depend on reports
+   * the truth; a check the key is not allowed to pass would keep warning
+   * "credentials rejected" while import works fine.
+   */
+  health: { method: "GET", path: "/products" } as null | { method: "GET"; path: string },
 };
 
 export class HttpProvider implements ExternalCommerceProvider {
@@ -197,16 +208,13 @@ export class HttpProvider implements ExternalCommerceProvider {
         { method: ENDPOINTS.health.method, headers: this.buildHeaders() },
         { timeoutMs: 8000 }
       );
-      let message = res.ok ? "Connected" : `Profile endpoint returned HTTP ${res.status}`;
+      let message = res.ok ? "Connected" : `Catalog endpoint returned HTTP ${res.status}`;
       if (res.ok) {
-        // GET /me → { reseller_id, shop_name, serial_number } — never return the key.
-        const me = (await res.json().catch(() => null)) as {
-          shop_name?: string;
-          serial_number?: number | string;
-          reseller_id?: string;
-        } | null;
-        if (me?.shop_name) {
-          message = `Connected — ${me.shop_name}${me.serial_number ? ` · reseller #${me.serial_number}` : ""}`;
+        // GET /products → a JSON array. Only the row count is reported; the
+        // key itself and any other credential never leave this function.
+        const payload = (await res.json().catch(() => null)) as unknown;
+        if (Array.isArray(payload)) {
+          message = `Connected — catalog reachable (${payload.length} products)`;
         }
       }
       return {
