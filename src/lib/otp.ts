@@ -2,6 +2,7 @@ import { randomInt } from "crypto";
 import { prisma } from "./db";
 import { sha256 } from "./auth";
 import { ApiError, badRequest, notConfigured } from "./errors";
+import { emailConfigured, sendMail } from "./mail";
 
 /**
  * ============================================================
@@ -19,11 +20,13 @@ import { ApiError, badRequest, notConfigured } from "./errors";
  * attempts or on successful use. getSettings() skips `otp:` keys so codes
  * can never leak through the admin settings API.
  *
- * Delivery — real Gmail SMTP when SMTP_* is configured in .env:
- *   1. Set SMTP_HOST/SMTP_USER/SMTP_PASS (+ optional SMTP_FROM)
+ * Delivery — real email through lib/mail.ts, which prefers the Brevo HTTPS
+ * API and falls back to Gmail SMTP — both work from anywhere (Render free
+ * blocks SMTP ports, so the HTTPS channel is what makes codes arrive there):
+ *   1. Set BREVO_API_KEY (preferred) or SMTP_HOST/SMTP_USER/SMTP_PASS
  *   2. Set OTP_DEV_MODE="false"
- * Without SMTP, OTP_DEV_MODE="true" allows the flow to keep working by
- * returning the code in the API response and logging it server-side —
+ * Without any channel, OTP_DEV_MODE="true" allows the flow to keep working
+ * by returning the code in the API response and logging it server-side —
  * clearly reported as delivery:"dev", never as a sent email.
  * Without either → NOT_CONFIGURED error (no fake success).
  */
@@ -58,10 +61,6 @@ function hashCode(purpose: OtpPurpose, email: string, code: string): string {
   return sha256(`${purpose}:${email.toLowerCase()}:${code}:${process.env.AUTH_SECRET ?? ""}`);
 }
 
-function smtpConfigured(): boolean {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-}
-
 function devMode(): boolean {
   return process.env.OTP_DEV_MODE === "true";
 }
@@ -90,33 +89,17 @@ function generateCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
-/** Real Gmail SMTP send. Throws NOT_CONFIGURED when credentials are absent. */
+/** Real delivery of the code (Brevo HTTPS first, Gmail SMTP second). */
 async function sendOtpEmail(to: string, code: string, purpose: OtpPurpose): Promise<void> {
-  if (!smtpConfigured()) {
+  if (!emailConfigured()) {
     throw notConfigured(
-      "Email verification is not configured on this server. Add SMTP_HOST, SMTP_USER and SMTP_PASS to .env and set OTP_DEV_MODE=false."
+      "Email verification is not configured on this server. Add BREVO_API_KEY (HTTPS, works on Render free) or SMTP_HOST, SMTP_USER and SMTP_PASS to .env and set OTP_DEV_MODE=false."
     );
   }
 
-  const host = process.env.SMTP_HOST!;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const nodemailer = (await import("nodemailer")).default;
-  const transport = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: {
-      user: process.env.SMTP_USER!.trim(),
-      // Gmail App Passwords print as 16 chars in 4-char groups — people often
-      // paste them with spaces, which Gmail rejects on auth. Strip whitespace.
-      pass: (process.env.SMTP_PASS ?? "").replace(/\s+/g, ""),
-    },
-  });
-
   const label = purpose === "register" ? "confirm your Imalissa account" : "sign in to Imalissa";
   try {
-    await transport.sendMail({
-    from: process.env.SMTP_FROM || `Imalissa <${process.env.SMTP_USER!}>`,
+    await sendMail({
     to,
     subject: `Your Imalissa verification code: ${code}`,
     text:
@@ -143,9 +126,9 @@ async function sendOtpEmail(to: string, code: string, purpose: OtpPurpose): Prom
       </div>`,
     });
   } catch (err) {
-    // Real SMTP failure (bad app password, quota, network) — report honestly
+    // Delivery failed (blocked SMTP, bad key, quota) — report honestly
     // instead of pretending the code was sent. Full detail goes to the log.
-    console.error("[otp] SMTP send failed:", err);
+    console.error("[otp] send failed:", err);
     throw new ApiError(
       502,
       "Could not send the verification email right now. Please try again in a few minutes."
@@ -183,7 +166,7 @@ export async function issueOtp(
     create: { key: otpKey(purpose, normalized), value: record as unknown as object, group: "otp" },
   });
 
-  if (smtpConfigured()) {
+  if (emailConfigured()) {
     await sendOtpEmail(normalized, code, purpose);
     return { email: normalized, delivery: "email" };
   }
@@ -195,7 +178,7 @@ export async function issueOtp(
   }
 
   throw notConfigured(
-    "Email verification is not configured. Set SMTP_* credentials in .env (or OTP_DEV_MODE=true during development)."
+    "Email verification is not configured. Set BREVO_API_KEY (HTTPS, works on Render free) or SMTP_* credentials in .env (or OTP_DEV_MODE=true during development)."
   );
 }
 

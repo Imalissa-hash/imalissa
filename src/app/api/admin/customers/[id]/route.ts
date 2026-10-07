@@ -8,7 +8,7 @@ import { audit } from "@/lib/audit";
 import { conflict, notFound, publicMessage } from "@/lib/errors";
 import { hashPassword } from "@/lib/auth";
 import { isStrongPassword } from "@/lib/validation";
-import { sendMail, smtpConfigured } from "@/lib/mail";
+import { sendMail, emailConfigured } from "@/lib/mail";
 import type { CustomerDetail } from "@/components/admin/sales/CustomerDetailClient";
 
 export const dynamic = "force-dynamic";
@@ -59,8 +59,8 @@ async function emailPasswordToCustomer(opts: {
   name: string;
   password: string;
 }): Promise<{ ok: boolean; message: string }> {
-  if (!smtpConfigured()) {
-    return { ok: false, message: "Email is not configured on this server — the password was NOT emailed." };
+  if (!emailConfigured()) {
+    return { ok: false, message: "Email is not configured on this server (BREVO_API_KEY or SMTP_* missing) — the password was NOT emailed." };
   }
 
   const subject = "Your Imalissa account password has been changed";

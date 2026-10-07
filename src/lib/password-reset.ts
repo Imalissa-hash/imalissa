@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "./db";
 import { sha256 } from "./auth";
 import { ApiError, badRequest, notConfigured } from "./errors";
+import { emailConfigured, sendMail } from "./mail";
 
 /**
  * ============================================================
@@ -22,12 +23,13 @@ import { ApiError, badRequest, notConfigured } from "./errors";
  * stops working. getSettings() skips `reset:` keys, so rows can never
  * leak through the admin settings API.
  *
- * Delivery — real Gmail SMTP when SMTP_* is configured in .env:
- *   1. Set SMTP_HOST/SMTP_USER/SMTP_PASS (+ optional SMTP_FROM)
+ * Delivery — real email through lib/mail.ts (Brevo HTTPS first, Gmail SMTP
+ * second), so links arrive even on Render free where SMTP ports are blocked:
+ *   1. Set BREVO_API_KEY (preferred) or SMTP_HOST/SMTP_USER/SMTP_PASS
  *   2. Set OTP_DEV_MODE="false"
- * Without SMTP, OTP_DEV_MODE="true" returns the link in the API response
- * as `devLink` and logs it — clearly reported as delivery:"dev", never as
- * a sent email. Without either → NOT_CONFIGURED error (no fake success).
+ * Without any channel, OTP_DEV_MODE="true" returns the link in the API
+ * response as `devLink` and logs it — clearly reported as delivery:"dev",
+ * never as a sent email. Without either → NOT_CONFIGURED error (no fake).
  */
 
 /** Scope picks the account table AND the page the emailed link opens. */
@@ -57,10 +59,6 @@ function resetKey(scope: ResetScope, email: string): string {
 
 function hashToken(scope: ResetScope, email: string, token: string): string {
   return sha256(`${scope}:${email.toLowerCase()}:${token}:${process.env.AUTH_SECRET ?? ""}`);
-}
-
-function smtpConfigured(): boolean {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
 function devMode(): boolean {
@@ -110,32 +108,16 @@ async function cleanupExpired(): Promise<void> {
 }
 
 /**
- * Real Gmail SMTP send for the reset link. Throws NOT_CONFIGURED when
- * credentials are absent and a 502 when the send itself fails.
- *
- * The transport is built here (mirroring lib/otp.ts) on purpose: otp.ts is
- * the live signup/sign-in path and is not touched by this feature.
+ * Real delivery of the reset link (Brevo HTTPS first, Gmail SMTP second —
+ * see lib/mail.ts). Throws NOT_CONFIGURED when no channel exists and a 502
+ * when the send itself fails.
  */
 async function sendResetEmail(to: string, link: string, scope: ResetScope): Promise<void> {
-  if (!smtpConfigured()) {
+  if (!emailConfigured()) {
     throw notConfigured(
-      "Password reset email is not configured on this server. Add SMTP_HOST, SMTP_USER and SMTP_PASS to .env and set OTP_DEV_MODE=false."
+      "Password reset email is not configured on this server. Add BREVO_API_KEY (HTTPS, works on Render free) or SMTP_HOST, SMTP_USER and SMTP_PASS to .env and set OTP_DEV_MODE=false."
     );
   }
-
-  const host = process.env.SMTP_HOST!;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const nodemailer = (await import("nodemailer")).default;
-  const transport = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: {
-      user: process.env.SMTP_USER!.trim(),
-      // Gmail app passwords are often pasted with spaces — Gmail rejects them.
-      pass: (process.env.SMTP_PASS ?? "").replace(/\s+/g, ""),
-    },
-  });
 
   const audience =
     scope === "admin"
@@ -143,8 +125,7 @@ async function sendResetEmail(to: string, link: string, scope: ResetScope): Prom
       : "your Imalissa account";
 
   try {
-    await transport.sendMail({
-      from: process.env.SMTP_FROM || `Imalissa <${process.env.SMTP_USER!}>`,
+    await sendMail({
       to,
       subject: "Reset your Imalissa password",
       text:
@@ -173,9 +154,9 @@ async function sendResetEmail(to: string, link: string, scope: ResetScope): Prom
         </div>`,
     });
   } catch (err) {
-    // Real SMTP failure (bad app password, quota, network) — report honestly
+    // Delivery failed (blocked SMTP, bad key, quota) — report honestly
     // instead of pretending the link was sent. Full detail goes to the log.
-    console.error("[reset] SMTP send failed:", err);
+    console.error("[reset] send failed:", err);
     throw new ApiError(
       502,
       "Could not send the reset email right now. Please try again in a few minutes."
@@ -214,7 +195,7 @@ export async function issueResetLink(
 
   const link = `${resolveBase(origin)}${resetPath(scope)}?e=${encodeURIComponent(normalized)}&t=${token}`;
 
-  if (smtpConfigured()) {
+  if (emailConfigured()) {
     await sendResetEmail(normalized, link, scope);
     return { delivery: "email" };
   }
@@ -226,7 +207,7 @@ export async function issueResetLink(
   }
 
   throw notConfigured(
-    "Password reset email is not configured. Set SMTP_* credentials in .env (or OTP_DEV_MODE=true during development)."
+    "Password reset email is not configured. Set BREVO_API_KEY (HTTPS, works on Render free) or SMTP_* credentials in .env (or OTP_DEV_MODE=true during development)."
   );
 }
 

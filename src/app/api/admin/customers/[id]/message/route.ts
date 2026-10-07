@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
 import { badRequest, notFound, publicMessage } from "@/lib/errors";
-import { sendMail, smtpConfigured } from "@/lib/mail";
+import { sendMail, emailConfigured } from "@/lib/mail";
 import { waLink, waDigits } from "@/lib/whatsapp";
 
 export const dynamic = "force-dynamic";
@@ -50,8 +50,8 @@ export const POST = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
     if (!customer.email) {
       throw badRequest("This customer has no email address on file");
     }
-    if (!smtpConfigured()) {
-      throw badRequest("Email is not configured on this server (SMTP_* missing in .env)");
+    if (!emailConfigured()) {
+      throw badRequest("Email is not configured on this server (BREVO_API_KEY or SMTP_* missing in .env)");
     }
 
     try {
