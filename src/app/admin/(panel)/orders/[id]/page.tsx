@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { BackLink } from "@/components/admin/AdminShell";
 import { OrderDetailClient } from "@/components/admin/sales/OrderDetailClient";
 import type { OrderDetail } from "@/components/admin/sales/OrderDetailClient";
+import { getConfig } from "@/server/external-commerce/config";
 
 export const metadata: Metadata = {
   title: "Order details",
@@ -110,10 +111,15 @@ export default async function AdminOrderDetailPage({
     })),
   };
 
+  // Push-to-API readiness for the order page — booleans only; the base URL
+  // and key themselves never leave the server.
+  const cfg = getConfig();
+  const externalReady = cfg.mode === "live" && cfg.baseUrl.length > 0 && cfg.apiKey.length > 0;
+
   return (
     <div>
       <BackLink href="/admin/orders" label="Back to orders" />
-      <OrderDetailClient order={payload} />
+      <OrderDetailClient order={payload} externalReady={externalReady} />
     </div>
   );
 }

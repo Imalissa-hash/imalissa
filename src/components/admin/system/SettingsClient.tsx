@@ -574,9 +574,9 @@ function ExternalApiFields({
         onChange={(v) => onChange({ ...value, autoSync: v })}
       />
       <p className="text-[0.78rem] leading-relaxed text-mist-500">
-        Off (the default) means no order is ever sent to the partner — neither right after checkout
-        nor from the Sync Center. Product import reads this API on its own path and keeps working
-        either way.
+        Off (the default) means no order is sent automatically after checkout. You can still send a
+        single order on demand with the Push to API button on its order page. Product import reads
+        this API on its own path and keeps working either way.
       </p>
       <Field label="Notes" hint="Internal notes for the team — not shown to customers">
         <TextArea rows={4} value={value.notes} onChange={(e) => onChange({ ...value, notes: e.target.value })} />

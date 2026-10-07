@@ -238,7 +238,14 @@ function Timeline({ order }: { order: OrderDetail }) {
 }
 
 /* ── Main client ───────────────────────────────────────── */
-export function OrderDetailClient({ order }: { order: OrderDetail }) {
+export function OrderDetailClient({
+  order,
+  externalReady = false,
+}: {
+  order: OrderDetail;
+  /** True when the partner connection (live mode + base URL + API key) exists server-side. */
+  externalReady?: boolean;
+}) {
   const router = useRouter();
 
   // Status change
@@ -268,7 +275,7 @@ export function OrderDetailClient({ order }: { order: OrderDetail }) {
       setPendingAction({
         action,
         message:
-          "Push this order to the external system again? Only safe when the previous attempt is known to have failed — timeouts must be verified first.",
+          "Send this order to the partner API now? Automatic forwarding is off, so nothing goes out unless you press this. If the partner site does not have this product the push fails and shows the exact reason — then handle the order manually.",
       });
     } else if (action === "verify") {
       setPendingAction({
@@ -652,10 +659,10 @@ export function OrderDetailClient({ order }: { order: OrderDetail }) {
           <Btn
             variant="outline"
             onClick={() => askSync("retry")}
-            disabled={!canRetry || syncBusy}
+            disabled={!canRetry || syncBusy || !externalReady}
             className="!px-3 !py-2"
           >
-            Retry push
+            Push to API
           </Btn>
           <Btn
             variant="outline"
@@ -682,6 +689,13 @@ export function OrderDetailClient({ order }: { order: OrderDetail }) {
             Pull status
           </Btn>
         </div>
+
+        {!externalReady && (
+          <p className="mt-3 rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2 text-[0.8rem] text-mist-500">
+            No partner API connection yet — add the base URL and API key in Settings → External
+            API, then this order can be pushed from here.
+          </p>
+        )}
 
         {pendingAction && (
           <div className="mt-4 rounded-xl border border-gold-500/30 bg-gold-500/[0.06] p-4">

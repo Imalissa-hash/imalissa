@@ -124,7 +124,9 @@ async function claimOrder(orderId: string): Promise<boolean> {
   const res = await prisma.order.updateMany({
     where: {
       id: orderId,
-      externalSyncStatus: { in: ["PENDING", "FAILED"] },
+      // NOT_CONFIGURED included: orders parked there by the "forwarding
+      // off" switch must stay claimable by an explicit Push to API.
+      externalSyncStatus: { in: ["PENDING", "FAILED", "NOT_CONFIGURED"] },
       externalOrderId: null,
     },
     data: {
@@ -257,14 +259,21 @@ export async function syncOrder(orderId: string, trigger: SyncTrigger = "auto"):
   }
 
   // ── Order forwarding master switch (Admin → Settings → External API) ──
-  // Off means no order leaves this system — neither the checkout push nor a
-  // manual "Retry push" from the Sync Center. Checked before anything is
-  // claimed or sent, so not a single request reaches the partner. Catalog /
-  // product import does not come through this function and is unaffected.
+  // Off means NO order leaves this system automatically — the post-checkout
+  // push and any scheduled push are blocked here, before anything is
+  // claimed or sent, so not a single request reaches the partner on its
+  // own. Catalog / product import does not come through this function and
+  // is unaffected.
+  //
+  // trigger === "manual" is the one deliberate exception: an admin pressing
+  // "Push to API" on the order page is an explicit per-order opt-in — that
+  // single order IS meant to leave. If the connection (URL/key) is missing
+  // the provider below fails honestly with NOT_CONFIGURED instead of
+  // guessing; nothing is ever pushed to an unconfigured endpoint.
   const settings = await getSettings();
-  if (!settings.externalApi.autoSync) {
+  if (!settings.externalApi.autoSync && trigger !== "manual") {
     const message =
-      "Order forwarding to the external API is turned off — the order stays in Imalissa and is handled by our team. Product import is unaffected.";
+      "Automatic order forwarding to the external API is turned off — the order stays in Imalissa and is handled by our team. To send one order anyway, use Push to API on its order page. Product import is unaffected.";
     // Leave no row claiming a push is still queued for delivery.
     if (current.externalSyncStatus === "PENDING") {
       await prisma.order

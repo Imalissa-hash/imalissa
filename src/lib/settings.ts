@@ -57,10 +57,11 @@ export interface SettingsShape {
     displayName: string;
     /**
      * Order forwarding master switch (Admin → Settings → External API).
-     * false → NO order is ever pushed to the partner API — neither the
-     * automatic push after checkout nor a manual "Retry push" in the Sync
-     * Center. Catalog/product import does not read this flag and keeps
-     * working. See syncOrder() in src/server/external-commerce/sync-order.ts.
+     * false → NO order is pushed automatically (the post-checkout push is
+     * blocked). An admin can still send ONE order on demand with the
+     * "Push to API" button on its order page — that per-order exception
+     * lives in syncOrder() (trigger === "manual"). Catalog/product import
+     * does not read this flag and keeps working either way.
      */
     autoSync: boolean;
     notes: string;

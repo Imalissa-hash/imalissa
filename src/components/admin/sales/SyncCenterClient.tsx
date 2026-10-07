@@ -408,7 +408,7 @@ export function SyncCenterClient({
                     }
                     onClick={() => setPending("retry")}
                   >
-                    Retry push
+                    Push to API
                   </Btn>
                   <Btn
                     variant="outline"
@@ -431,7 +431,7 @@ export function SyncCenterClient({
                 <div className="mt-3 rounded-xl border border-gold-500/30 bg-gold-500/[0.06] p-3">
                   <p className="text-[0.82rem] text-mist-300">
                     {pending === "retry"
-                      ? "Push this order again? Only safe when the previous attempt is known to have failed — verify timeouts first."
+                      ? "Send this order to the partner API now? Automatic forwarding is off — this sends only this one order. If the partner site does not have the product the push fails and shows the reason."
                       : "Ask the external system whether this order already exists before any retry."}
                   </p>
                   <div className="mt-2.5 flex justify-end gap-2">
