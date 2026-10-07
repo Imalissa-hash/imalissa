@@ -237,7 +237,8 @@ export async function addToCart(
     });
   }
 
-  await prisma.cart.update({ where: { id: cart.id }, data: { updatedAt: new Date() } });
+  // No separate cart-row "touch": nothing reads cart.updatedAt, and this
+  // write would cost a full DB round trip (~550 ms live) on every add.
   return priceCart(cart.id);
 }
 

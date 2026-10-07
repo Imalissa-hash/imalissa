@@ -376,19 +376,25 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
         });
       }
 
-      // 10. Internal notification for admins (unassigned userId = system).
-      await tx.notification.create({
-        data: {
-          orderId: created.id,
-          type: "ORDER",
-          title: `New order ${orderNumber}`,
-          body: `${address.fullName} · ${formatBdtSafe(totals.total)} · ${paymentMethod}`,
-          link: `/admin/orders/${orderNumber}`,
-        },
-      });
-
       return created;
     }, ORDER_TX_OPTIONS);
+
+    // Admin bell notification — inserted AFTER commit: a notification
+    // failure must never roll back or slow down a placed order (the
+    // Telegram alert is fire-and-forget too).
+    try {
+      await prisma.notification.create({
+        data: {
+          orderId: order.id,
+          type: "ORDER",
+          title: `New order ${order.orderNumber}`,
+          body: `${address.fullName} · ${formatBdtSafe(totals.total)} · ${paymentMethod}`,
+          link: `/admin/orders/${order.orderNumber}`,
+        },
+      });
+    } catch (err) {
+      console.error("[order] admin notification insert failed:", err);
+    }
 
     return {
       orderId: order.id,

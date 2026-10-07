@@ -103,28 +103,45 @@ export async function startSession(userId: string, ip?: string, userAgent?: stri
   await setSessionCookie(token, expiresAt);
 }
 
+/**
+ * In-memory session cache. A session lookup is one database round trip, and
+ * with the database in a different region than the app that costs ~550 ms on
+ * every authenticated request. Entries live 30 s, so admin blocks and
+ * password resets take effect within 30 s at worst; logout (see
+ * destroySession) evicts immediately. Render free runs a single instance,
+ * so one map serves every request.
+ */
+const SESSION_CACHE_MS = 30_000;
+const sessionCache = new Map<string, { user: AuthUser; at: number }>();
+
 /** Resolve the logged-in customer (or null). Safe to call anywhere server-side. */
 export async function getSessionUser(): Promise<AuthUser | null> {
   try {
     const store = await cookies();
     const token = store.get(SESSION_COOKIE)?.value;
     if (!token) return null;
+    const key = sha256(token);
+
+    const cached = sessionCache.get(key);
+    if (cached && Date.now() - cached.at < SESSION_CACHE_MS) return cached.user;
 
     const session = await prisma.session.findUnique({
-      where: { tokenHash: sha256(token) },
+      where: { tokenHash: key },
       include: { user: true },
     });
 
     if (!session || session.expiresAt < new Date()) return null;
     if (session.user.status === "BLOCKED") return null;
 
-    return {
+    const user: AuthUser = {
       id: session.user.id,
       name: session.user.name,
       email: session.user.email,
       phone: session.user.phone,
       status: session.user.status,
     };
+    sessionCache.set(key, { user, at: Date.now() });
+    return user;
   } catch (err) {
     console.error("[auth] session lookup failed:", err);
     return null;
@@ -136,7 +153,9 @@ export async function destroySession(): Promise<void> {
     const store = await cookies();
     const token = store.get(SESSION_COOKIE)?.value;
     if (token) {
-      await prisma.session.deleteMany({ where: { tokenHash: sha256(token) } });
+      const key = sha256(token);
+      sessionCache.delete(key); // effective immediately, not after the TTL
+      await prisma.session.deleteMany({ where: { tokenHash: key } });
     }
   } catch {
     // best effort
