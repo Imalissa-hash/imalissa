@@ -57,7 +57,9 @@ export const POST = withApi(async (req: NextRequest) => {
   // Checkout requires a signed-in account. Guests can browse and fill the
   // cart, but placing an order is only possible after login (the storefront
   // redirects to /auth/login?next=/checkout before this point).
-  const user = await getSessionUser();
+  // Session lookup and the payment-method list are independent reads — run
+  // them together (every DB round trip costs ~100 ms here).
+  const [user, methods] = await Promise.all([getSessionUser(), availablePaymentMethods()]);
   if (!user) {
     throw unauthorized("Please sign in to continue to checkout");
   }
@@ -65,7 +67,6 @@ export const POST = withApi(async (req: NextRequest) => {
   const guest = store.get("imalissa_guest")?.value ?? null;
 
   // Payment method must be genuinely available (no fake gateways).
-  const methods = await availablePaymentMethods();
   if (!methods.some((m) => m.method === body.paymentMethod)) {
     throw badRequest("Selected payment method is not available right now");
   }

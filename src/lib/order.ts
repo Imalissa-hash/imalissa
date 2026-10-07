@@ -87,11 +87,24 @@ const ORDER_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderResult> {
   const { userId, guestId, address, paymentMethod, idempotencyKey } = params;
 
-  // ── Replay guard: same request already produced an order? ──────────
-  const existing = await prisma.order.findUnique({
-    where: { idempotencyKey },
-    select: { id: true, orderNumber: true, total: true },
-  });
+  // ── Replay guard + cart load — independent reads, run together ─────
+  const [existing, cart] = await Promise.all([
+    prisma.order.findUnique({
+      where: { idempotencyKey },
+      select: { id: true, orderNumber: true, total: true },
+    }),
+    prisma.cart.findUnique({
+      where: userId ? { userId } : { sessionId: guestId ?? "" },
+      include: {
+        items: {
+          include: {
+            product: { include: { images: { orderBy: { position: "asc" }, take: 1 } } },
+            variant: true,
+          },
+        },
+      },
+    }),
+  ]);
   if (existing) {
     return {
       orderId: existing.id,
@@ -100,19 +113,6 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
       total: Number(existing.total),
     };
   }
-
-  // ── Load & price the cart (server-side truth) ──────────────────────
-  const cart = await prisma.cart.findUnique({
-    where: userId ? { userId } : { sessionId: guestId ?? "" },
-    include: {
-      items: {
-        include: {
-          product: { include: { images: { orderBy: { position: "asc" }, take: 1 } } },
-          variant: true,
-        },
-      },
-    },
-  });
 
   if (!cart || cart.items.length === 0) {
     throw badRequest("Your cart is empty");
@@ -168,6 +168,49 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
     userId,
     shippingZone
   );
+
+  // ── Hoisted reads (each DB round trip costs ~100 ms, so nothing that can
+  //    run before the transaction waits inside it) ───────────────────────
+
+  // External mapping refs for the order lines: one parallel batch now
+  // instead of one await per line while the transaction holds the
+  // connection.
+  const mappingRefs = new Map<string, string | null>();
+  await Promise.all(
+    orderItems.map((line) =>
+      prisma.externalProductMapping
+        .findUnique({
+          where: { productId: line.productId },
+          select: { externalId: true },
+        })
+        .then((mapping) => {
+          if (!mappingRefs.has(line.productId)) {
+            mappingRefs.set(line.productId, mapping?.externalId ?? null);
+          }
+        })
+    )
+  );
+
+  // Address-book duplicate check + "is this the first address?" — plain
+  // reads the order itself does not depend on, so they run before the tx.
+  const addressShouldSave = Boolean(userId) && params.saveAddress !== false;
+  const addressChecks = addressShouldSave
+    ? await Promise.all([
+        prisma.address.findFirst({
+          where: {
+            userId: userId!,
+            fullName: address.fullName,
+            phone: address.phone,
+            district: address.district,
+            fullAddress: address.fullAddress,
+          },
+          select: { id: true },
+        }),
+        prisma.address.count({ where: { userId: userId! } }),
+      ])
+    : null;
+  const addressDup = addressChecks?.[0] ?? null;
+  const addressHasAny = addressChecks?.[1] ?? 0;
 
   // ── Commit everything atomically ───────────────────────────────────
   try {
@@ -264,12 +307,7 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
             lineDiscount: 0,
             quantity: line.quantity,
             lineTotal: line.lineTotal,
-            externalProductRef: (
-              await tx.externalProductMapping.findUnique({
-                where: { productId: line.productId },
-                select: { externalId: true },
-              })
-            )?.externalId ?? null,
+            externalProductRef: mappingRefs.get(line.productId) ?? null,
           },
         });
 
@@ -319,34 +357,23 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
       await tx.cart.update({ where: { id: cart.id }, data: { couponCode: null } });
 
-      // 9. Save the address for logged-in customers.
-      if (userId && params.saveAddress !== false) {
-        const dup = await tx.address.findFirst({
-          where: {
-            userId,
+      // 9. Save the address for logged-in customers (the duplicate /
+      //     first-address checks were already done above, outside the tx).
+      if (addressShouldSave && !addressDup) {
+        await tx.address.create({
+          data: {
+            userId: userId!,
             fullName: address.fullName,
             phone: address.phone,
+            email: address.email,
+            division: address.division,
             district: address.district,
+            area: address.area,
             fullAddress: address.fullAddress,
+            instructions: address.instructions,
+            isDefault: addressHasAny === 0,
           },
         });
-        if (!dup) {
-          const hasAny = await tx.address.count({ where: { userId } });
-          await tx.address.create({
-            data: {
-              userId,
-              fullName: address.fullName,
-              phone: address.phone,
-              email: address.email,
-              division: address.division,
-              district: address.district,
-              area: address.area,
-              fullAddress: address.fullAddress,
-              instructions: address.instructions,
-              isDefault: hasAny === 0,
-            },
-          });
-        }
       }
 
       // 10. Internal notification for admins (unassigned userId = system).

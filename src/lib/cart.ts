@@ -168,10 +168,15 @@ export async function addToCart(
   guestId: string | null,
   input: z.infer<typeof cartAddSchema>
 ): Promise<CartSummary> {
-  const product = await prisma.product.findUnique({
-    where: { id: input.productId },
-    include: { variants: true },
-  });
+  // The product lookup and the cart lookup don't depend on each other — run
+  // them together (each DB round trip costs ~100 ms).
+  const [product, cart] = await Promise.all([
+    prisma.product.findUnique({
+      where: { id: input.productId },
+      include: { variants: true },
+    }),
+    ensureCart(userId, guestId),
+  ]);
   if (!product || product.status !== "ACTIVE") throw notFound("Product not found");
 
   let variantId: string | null = null;
@@ -202,8 +207,6 @@ export async function addToCart(
   }
 
   if (variantStock <= 0) throw badRequest("This item is out of stock");
-
-  const cart = await ensureCart(userId, guestId);
 
   // Increment if the exact same line exists, otherwise create one.
   const existing = await prisma.cartItem.findFirst({
