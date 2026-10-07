@@ -34,7 +34,7 @@ export function OrderConfirmed({
     FAILED:
       "Your order is saved and will be forwarded to our fulfillment partner shortly. You'll receive a confirmation call soon.",
     NOT_CONFIGURED:
-      "Your order is saved. Fulfillment forwarding will be enabled once the external API connection is configured.",
+      "Your order is saved with us. Our team will process it and call you to confirm — nothing is sent to an external system.",
     PENDING: "Your order is being forwarded to our fulfillment partner…",
     SKIPPED: "Your order has been received by our team.",
   };

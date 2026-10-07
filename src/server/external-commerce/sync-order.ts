@@ -256,6 +256,27 @@ export async function syncOrder(orderId: string, trigger: SyncTrigger = "auto"):
     };
   }
 
+  // ── Order forwarding master switch (Admin → Settings → External API) ──
+  // Off means no order leaves this system — neither the checkout push nor a
+  // manual "Retry push" from the Sync Center. Checked before anything is
+  // claimed or sent, so not a single request reaches the partner. Catalog /
+  // product import does not come through this function and is unaffected.
+  const settings = await getSettings();
+  if (!settings.externalApi.autoSync) {
+    const message =
+      "Order forwarding to the external API is turned off — the order stays in Imalissa and is handled by our team. Product import is unaffected.";
+    // Leave no row claiming a push is still queued for delivery.
+    if (current.externalSyncStatus === "PENDING") {
+      await prisma.order
+        .updateMany({
+          where: { id: orderId, externalSyncStatus: "PENDING" },
+          data: { externalSyncStatus: "NOT_CONFIGURED", lastSyncError: message },
+        })
+        .catch(() => undefined);
+    }
+    return { status: "NOT_CONFIGURED", message, attempt: current.syncAttempts };
+  }
+
   if (current.externalSyncStatus === "SYNC_TIMEOUT") {
     return {
       status: "SYNC_TIMEOUT",
@@ -594,11 +615,13 @@ export function mapExternalStatusToLocal(
   return STATUS_MAP[key] ?? null;
 }
 
-/** Convenience used by checkout: initial push. */
+/**
+ * Convenience used by checkout: initial push.
+ *
+ * The forwarding switch is evaluated inside syncOrder() so checkout and the
+ * manual retry obey exactly one rule; a blocked push reports NOT_CONFIGURED
+ * with the reason instead of pretending the order went out.
+ */
 export async function syncNewOrder(orderId: string): Promise<SyncOutcome> {
-  const settings = await getSettings();
-  if (!settings.externalApi.autoSync) {
-    return { status: "SKIPPED", message: "Auto-sync is off — push manually from admin.", attempt: 0 };
-  }
   return syncOrder(orderId, "checkout");
 }

@@ -55,6 +55,13 @@ export interface SettingsShape {
   externalApi: {
     // Non-secret display settings only. Secrets stay in .env.
     displayName: string;
+    /**
+     * Order forwarding master switch (Admin → Settings → External API).
+     * false → NO order is ever pushed to the partner API — neither the
+     * automatic push after checkout nor a manual "Retry push" in the Sync
+     * Center. Catalog/product import does not read this flag and keeps
+     * working. See syncOrder() in src/server/external-commerce/sync-order.ts.
+     */
     autoSync: boolean;
     notes: string;
   };
@@ -132,7 +139,9 @@ export const DEFAULT_SETTINGS: SettingsShape = {
   },
   externalApi: {
     displayName: "Partner Commerce API",
-    autoSync: true,
+    // Orders are handled in-house by default; the partner connection is used
+    // for product import only. Turn forwarding on explicitly if it is wanted.
+    autoSync: false,
     notes: "",
   },
   telegram: {
