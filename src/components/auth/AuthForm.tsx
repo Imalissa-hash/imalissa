@@ -130,10 +130,12 @@ export function AuthForm({ mode }: { mode: Mode }) {
       }
 
       setUser(json.data ?? null);
-      await Promise.all([refreshCart(), refreshWishlist()]);
       toast(mode === "login" ? "Welcome back!" : "Account created — welcome!", "success");
+      // Redirect FIRST so nobody waits on the cart / wishlist refresh — the
+      // badges catch up in the background once the data lands.
       router.push(nextPath);
       router.refresh();
+      void Promise.all([refreshCart(), refreshWishlist()]);
     } catch {
       setError("Network error — please check your connection and try again.");
     } finally {
@@ -167,10 +169,10 @@ export function AuthForm({ mode }: { mode: Mode }) {
       }
 
       setUser(json.data ?? null);
-      await Promise.all([refreshCart(), refreshWishlist()]);
       toast(otp.purpose === "login" ? "Welcome back!" : "Account created — welcome!", "success");
       router.push(nextPath);
       router.refresh();
+      void Promise.all([refreshCart(), refreshWishlist()]);
     } catch {
       setError("Network error — please check your connection and try again.");
     } finally {

@@ -22,17 +22,20 @@ export function sha256(input: string): string {
 /**
  * bcrypt cost for NEW hashes.
  *
- * Cost 12 in pure-JS bcryptjs costs ~2.8 s per verify on a desktop and ~5 s
- * on the Render free instance — that one compare was most of the login time
- * (measured live: POST /api/admin/auth/login 5–7 s warm). Cost 10 is the
- * OWASP-recommended minimum for bcrypt and is 4× cheaper. Stored cost-12
- * hashes still verify (the cost lives inside the hash) and are rewritten to
- * this setting on the owner's next successful login via `needsRehash`.
+ * The work factor lives inside each hash, so the cost stays at 10 (OWASP
+ * minimum) — what changed is the IMPLEMENTATION: pure-JS `bcryptjs` needs
+ * ~1.25 s for one cost-10 compare on the Render free instance (~2.8 s at
+ * cost 12), which was most of the login time. Native `bcrypt` (the C
+ * reference implementation) runs the same algorithm in a fraction of that,
+ * and both libraries read each other's hashes interchangeably — existing
+ * rows need no migration. Stored cost-12 hashes still verify and are
+ * rewritten to this setting on the owner's next successful login via
+ * `needsRehash`.
  */
 const COST = 10;
 
 export async function hashPassword(password: string): Promise<string> {
-  const bcrypt = await import("bcryptjs");
+  const bcrypt = await import("bcrypt");
   return bcrypt.hash(password, COST);
 }
 
@@ -48,7 +51,7 @@ export function needsRehash(hash: string): boolean {
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   try {
-    const bcrypt = await import("bcryptjs");
+    const bcrypt = await import("bcrypt");
     return await bcrypt.compare(password, hash);
   } catch {
     return false;

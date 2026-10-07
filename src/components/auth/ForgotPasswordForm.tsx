@@ -142,7 +142,18 @@ export function ForgotPasswordForm() {
           </form>
         )}
 
-        <p className="mt-6 text-center text-[0.86rem] text-mist-500">
+        <div className="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3.5 text-center text-[0.84rem] leading-relaxed text-mist-400">
+          Email not arriving, or you no longer have access to that inbox?{" "}
+          <Link
+            href="/contact"
+            className="font-semibold text-gold-400 transition hover:text-gold-300"
+          >
+            Contact us
+          </Link>{" "}
+          from your registered email — our team will verify you and reset the password for you.
+        </div>
+
+        <p className="mt-4 text-center text-[0.86rem] text-mist-500">
           Remembered it?{" "}
           <Link href="/auth/login" className="font-semibold text-gold-400 transition hover:text-gold-300">
             Sign in
