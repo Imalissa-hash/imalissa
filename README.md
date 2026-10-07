@@ -25,9 +25,9 @@ Prisma 6 · MySQL/MariaDB**.
     `/checkout` (page + `/api/checkout`) only works for a signed-in account.
   - **Delivery zone by district (jela)**: Dhaka district **৳80**, every other
     district **৳130** (free over the configured threshold).
-  - **Gmail verification code (OTP)** on signup and login: step 1 validates the
-    credentials, step 2 requires the 6-digit code emailed to the account —
-    the session starts only after the code is accepted.
+  - **Password-only signup & login** — email/phone + password starts the session directly.
+    (The emailed 6-digit code step is temporarily out while hosted email is blocked;
+    git history has it and `/api/auth/verify-otp` is intact for re-enabling.)
 - Unique order numbers `IMAL-2026-000001`, order confirmation page, tracking
   (`/track-order`).
 - Customer account: orders, addresses, reviews, profile/security settings.
@@ -117,7 +117,8 @@ See **`.env.example`** for the annotated full list. Summary:
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin account created by seed |
 | `EXTERNAL_COMMERCE_MODE` | `disabled` \| `mock` \| `live` |
 | `EXTERNAL_COMMERCE_BASE_URL` / `_API_KEY` / `_API_SECRET` | Partner API credentials — **server only** |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Gmail SMTP used to send signup/login verification codes — **server only** |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Gmail SMTP — password-reset links & admin→customer emails (sign-in codes temporarily out) — **server only** |
+| `BREVO_API_KEY` / `BREVO_FROM` | Brevo transactional API over HTTPS (the channel that works on Render free), tried **before** SMTP; the from-address must be a verified Brevo sender — **server only** |
 | `OTP_DEV_MODE` | `true` while SMTP is empty (code returned & labeled dev) · `false` in production (503 instead of a fake send) |
 
 **Rules**
@@ -178,8 +179,8 @@ src/
 1. Browse home → open category → open product → pick variant → add to cart.
 2. Search + apply filter/sort → add another item.
 3. Add coupon (seeded codes, e.g. `WELCOME10`) → cart totals update.
-4. Sign up / sign in (both ask for the emailed 6-digit OTP code) → cart carries
-   over to the account.
+4. Sign up / sign in (password only — the emailed code step is temporarily out)
+   → cart carries over to the account.
 5. Checkout: division/district/area → pick a **Dhaka district (৳80)** vs any
    other district (**৳130**) → COD → place order (double-click the button —
    only **one** order is created). A guest opening `/checkout` is bounced to

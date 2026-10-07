@@ -2,19 +2,20 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { hashPassword, startSession } from "@/lib/auth";
 import { badRequest, conflict } from "@/lib/errors";
-import { issueOtp } from "@/lib/otp";
+import { mergeCarts } from "@/lib/cart";
+import { cookies } from "next/headers";
 
 /**
- * Step 1 of signup with Gmail verification.
+ * Signup: create the account and start the session in one step.
  *
- * Nothing is written to the user table yet. We validate, hash the password
- * and hand the whole pending account to issueOtp("register", email) — the
- * code is emailed to that address and only /api/auth/verify-otp creates the
- * account + session. Email is therefore REQUIRED (it is the OTP channel).
+ * (The emailed verification-code step is temporarily out while Render free
+ * blocks outbound email — git history has it, and /api/auth/verify-otp stays
+ * reachable for a later re-enable. Email stays REQUIRED: it is the account's
+ * recovery channel.)
  *
- * Response: { otpRequired: true, email, delivery, devCode? }
+ * Response: { id, name, email, phone }
  */
 const registerSchema = z.object({
   name: z.string().min(2, "Please enter your name").max(80),
@@ -41,22 +42,33 @@ export const POST = withApi(async (req: NextRequest) => {
     );
   }
 
-  // Hold the pending account (password stored only as a hash) until the
-  // emailed code is confirmed — issueOtp throws 503 NOT_CONFIGURED when no
-  // SMTP is configured and dev mode is off (never a fake "email sent").
-  const otp = await issueOtp("register", email, {
-    name: body.name.trim(),
-    email,
-    phone: body.phone,
-    passwordHash: await hashPassword(body.password),
-  });
+  // Create the account and sign the customer in (the unique email/phone are
+  // enforced by the DB — the pre-flight above covers normal double submits).
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        name: body.name.trim(),
+        email,
+        phone: body.phone,
+        passwordHash: await hashPassword(body.password),
+      },
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === "P2002") {
+      throw conflict("An account with this email or phone number already exists");
+    }
+    throw err;
+  }
 
-  return jsonOk({
-    otpRequired: true,
-    email: otp.email,
-    delivery: otp.delivery,
-    ...(otp.devCode ? { devCode: otp.devCode } : {}),
-  });
+  // Merge any guest cart, then start the session immediately.
+  const store = await cookies();
+  const guest = store.get("imalissa_guest")?.value ?? null;
+  if (guest) await mergeCarts(user.id, guest);
+
+  await startSession(user.id, clientIp(req), req.headers.get("user-agent") ?? undefined);
+
+  return jsonOk({ id: user.id, name: user.name, email: user.email, phone: user.phone });
 });
 
 export const dynamic = "force-dynamic";

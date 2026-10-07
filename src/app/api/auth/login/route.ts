@@ -2,19 +2,21 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { hashPassword, needsRehash, verifyPassword } from "@/lib/auth";
+import { hashPassword, needsRehash, startSession, verifyPassword } from "@/lib/auth";
 import { badRequest, unauthorized } from "@/lib/errors";
-import { issueOtp } from "@/lib/otp";
+import { mergeCarts } from "@/lib/cart";
+import { cookies } from "next/headers";
 
 /**
- * Step 1 of login with Gmail verification.
+ * Login with email/phone + password.
  *
- * The password is checked FIRST (no code is ever sent to an address that
- * didn't prove the password — prevents email bombing / enumeration), then a
- * code is issued to the account's email. No session cookie is set here:
- * /api/auth/verify-otp is what starts the session.
+ * The password is checked FIRST (no account enumeration) and the session
+ * starts immediately. The emailed 6-digit code step is temporarily out while
+ * Render free blocks outbound email (see git history for it) —
+ * /api/auth/verify-otp stays reachable so the code step can be re-enabled
+ * once a working email channel exists.
  *
- * Response: { otpRequired: true, email, delivery, devCode? }
+ * Response: { id, name, email, phone }
  */
 const schema = z.object({
   identifier: z.string().min(3, "Enter your email or phone"),
@@ -52,22 +54,15 @@ export const POST = withApi(async (req: NextRequest) => {
 
   if (user.status === "BLOCKED") throw badRequest("Your account has been suspended. Contact support.");
 
-  if (!user.email) {
-    // Every account created from now on has an email (signup requires it for
-    // the OTP). A legacy account without one cannot be code-verified.
-    throw badRequest(
-      "This account has no email address, so a verification code cannot be sent. Please contact support to add one."
-    );
-  }
+  // Merge any guest cart into the account, then start the session right away
+  // (the same steps /api/auth/verify-otp used to run after the code matched).
+  const store = await cookies();
+  const guest = store.get("imalissa_guest")?.value ?? null;
+  if (guest) await mergeCarts(user.id, guest);
 
-  const otp = await issueOtp("login", user.email, { userId: user.id });
+  await startSession(user.id, clientIp(req), req.headers.get("user-agent") ?? undefined);
 
-  return jsonOk({
-    otpRequired: true,
-    email: otp.email,
-    delivery: otp.delivery,
-    ...(otp.devCode ? { devCode: otp.devCode } : {}),
-  });
+  return jsonOk({ id: user.id, name: user.name, email: user.email, phone: user.phone });
 });
 
 export const dynamic = "force-dynamic";

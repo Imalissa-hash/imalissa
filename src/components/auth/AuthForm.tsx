@@ -72,8 +72,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
       if (!isBdPhone(normalizePhone(form.phone))) {
         errs.phone = "Enter a valid BD mobile (e.g. 01712345678)";
       }
-      // Email is required: the signup verification code is sent here.
-      if (!form.email.trim()) errs.email = "Email is required — we send the verification code here";
+      // Email is required: it is the account's recovery & receipt channel.
+      if (!form.email.trim()) errs.email = "Email is required for receipts & password recovery";
       else if (!isEmail(form.email)) errs.email = "Enter a valid email";
       if (!isStrongPassword(form.password)) {
         errs.password = "Use 8+ characters with letters and numbers";
