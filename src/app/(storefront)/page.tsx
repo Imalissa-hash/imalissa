@@ -5,6 +5,7 @@ import { HomeSectionRenderer, QuickCategoryStrip } from "@/components/home/HomeS
 import { TrustAndNewsletter } from "@/components/home/TrustAndNewsletter";
 import { ProductRail } from "@/components/ui/ProductRail";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import { SupportChat } from "@/components/shop/SupportChat";
 import { getFeatured } from "@/lib/queries";
 
 export const metadata = {
@@ -66,6 +67,9 @@ export default async function HomePage() {
 
       {/* Trust + newsletter */}
       <TrustAndNewsletter />
+
+      {/* Floating support chat (login-gated, answered in Admin → Live Chat) */}
+      <SupportChat />
     </div>
   );
 }

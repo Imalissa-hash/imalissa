@@ -162,6 +162,7 @@ model User {
   notifications   Notification[]
   recentlyViewed  RecentlyViewed[]
   couponUsages    CouponUsage[]
+  chatThreads     ChatThread[]
 
   @@index([createdAt])
 }
@@ -850,6 +851,50 @@ model ContactMessage {
   createdAt DateTime @default(now())
 
   @@index([isRead, createdAt])
+}
+
+// ------------------------------------------------------------
+// Customer support chat — floating widget on the homepage.
+// Customers must be logged in to talk; every thread and message is
+// visible (and answerable) in Admin → Live Chat.
+// ------------------------------------------------------------
+
+enum ChatStatus {
+  OPEN
+  CLOSED
+}
+
+enum ChatSender {
+  USER
+  ADMIN
+}
+
+model ChatThread {
+  id            String     @id @default(cuid())
+  userId        String
+  status        ChatStatus @default(OPEN)
+  lastMessageAt DateTime   @default(now())
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, createdAt])
+  @@index([status, lastMessageAt])
+}
+
+model ChatMessage {
+  id        String     @id @default(cuid())
+  threadId  String
+  sender    ChatSender
+  body      String     @db.Text
+  readAt    DateTime?
+  createdAt DateTime   @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }
 
 // Atomic sequence for generating order numbers like IMAL-2026-000001

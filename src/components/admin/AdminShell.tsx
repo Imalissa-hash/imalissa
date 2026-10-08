@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   LogOut,
   Menu,
+  MessageCircle,
   Package,
   Boxes,
   ScrollText,
@@ -79,6 +80,7 @@ const NAV: NavSection[] = [
       { href: "/admin/customers", label: "Customers", icon: Users, perm: "customers.view" },
       { href: "/admin/reviews", label: "Reviews", icon: Star, perm: "reviews.view" },
       { href: "/admin/messages", label: "Messages", icon: Inbox, perm: "messages.view" },
+      { href: "/admin/chats", label: "Live Chat", icon: MessageCircle, perm: "messages.view" },
     ],
   },
   {
