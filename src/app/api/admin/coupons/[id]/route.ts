@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma, type Coupon } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict, notFound } from "@/lib/errors";
 import type { CouponRow } from "@/components/admin/content/CouponsClient";
@@ -123,7 +123,7 @@ function toRow(c: Coupon): CouponRow {
 
 // ── GET /api/admin/coupons/[id] — full detail ─────────────
 export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  await requireAdmin();
+  await requirePermission("coupons.view");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Coupon not found");
 
@@ -135,7 +135,7 @@ export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── PATCH /api/admin/coupons/[id] — partial update ────────
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("coupons.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Coupon not found");
 
@@ -218,7 +218,7 @@ export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── DELETE /api/admin/coupons/[id] ────────────────────────
 export const DELETE = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("coupons.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Coupon not found");
 

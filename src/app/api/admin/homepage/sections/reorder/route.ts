@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest } from "@/lib/errors";
 
@@ -17,7 +17,7 @@ const reorderSchema = z.object({
 // new visual order. `order` is rewritten to the array index (storefront sorts
 // ascending), so the payload must be a permutation of every section id.
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("homepage.manage");
   const body = parseBody(reorderSchema, await req.json().catch(() => ({})));
   const ids = body.orderedIds;
 

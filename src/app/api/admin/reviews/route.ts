@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import type { Prisma, Review } from "@prisma/client";
 import { withApi, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { badRequest } from "@/lib/errors";
 import type { ReviewRow } from "@/components/admin/content/ReviewsClient";
 
@@ -39,7 +39,7 @@ const listInclude = {
 
 // ── GET /api/admin/reviews — list (q / rating / status / page) ──
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("reviews.view");
 
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();

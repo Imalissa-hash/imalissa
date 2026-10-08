@@ -35,14 +35,20 @@ export const POST = withApi(async (req: NextRequest) => {
     },
   });
 
-  await prisma.notification.create({
-    data: {
-      type: "SYSTEM",
-      title: `Contact: ${body.subject.slice(0, 60)}`,
-      body: `${body.name}${body.phone ? ` · ${body.phone}` : ""}${body.email ? ` · ${body.email}` : ""}`,
-      link: `/admin/messages#${saved.id}`,
-    },
-  });
+  // Admin System Log alert (best effort — the message itself is already
+  // saved, so a failed alert must not fail the public form).
+  try {
+    await prisma.adminAlert.create({
+      data: {
+        type: "MESSAGE",
+        title: `New message: ${body.subject.slice(0, 80)}`,
+        body: `${body.name.trim()}${body.phone ? ` · ${body.phone}` : ""}${body.email ? ` · ${body.email.trim()}` : ""}\n${body.message.trim()}`,
+        link: `/admin/messages/${saved.id}`,
+      },
+    });
+  } catch (err) {
+    console.error("[contact] admin alert insert failed:", err);
+  }
 
   const settings = await getSettings();
   return jsonOk({

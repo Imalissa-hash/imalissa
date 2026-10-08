@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma, type HomeSection } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict } from "@/lib/errors";
 import type { SectionRow } from "@/components/admin/content/SectionsEditor";
@@ -75,7 +75,7 @@ function toRow(s: HomeSection): SectionRow {
 // The storefront (getHomeSections) filters isVisible + order asc — no
 // pagination here because the editor needs the full list to reorder.
 export const GET = withApi(async () => {
-  await requireAdmin();
+  await requirePermission("homepage.view");
 
   const rows = await prisma.homeSection.findMany({ orderBy: { order: "asc" } });
   return jsonOk({ items: rows.map(toRow), total: rows.length });
@@ -83,7 +83,7 @@ export const GET = withApi(async () => {
 
 // ── POST /api/admin/homepage/sections — create ────────────
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("homepage.manage");
   const body = parseBody(createSchema, await req.json().catch(() => ({})));
 
   const rawKey = body.key.toLowerCase();

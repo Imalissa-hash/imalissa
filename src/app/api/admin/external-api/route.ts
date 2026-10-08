@@ -3,7 +3,7 @@ import { promises as fsp } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest } from "@/lib/errors";
 import { getExternalProvider, resetExternalProvider } from "@/server/external-commerce/index";
@@ -143,7 +143,7 @@ function normalizeSecret(value: string, label: string): string {
 
 /** GET /api/admin/external-api — connection status (never the credential values). */
 export const GET = withApi(async () => {
-  await requireAdmin();
+  await requirePermission("settings.view");
   return jsonOk(await readStatus());
 });
 
@@ -153,7 +153,7 @@ export const GET = withApi(async () => {
  * untouched, an empty apiKey/apiSecret clears it.
  */
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("settings.manage");
   rateLimit(`admin-external-api:${clientIp(req)}`, 20, 60_000);
 
   const raw = await req.json().catch(() => null);

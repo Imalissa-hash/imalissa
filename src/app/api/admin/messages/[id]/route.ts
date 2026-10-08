@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { notFound } from "@/lib/errors";
 import type { MessageDetail } from "@/components/admin/sales/MessageDetailClient";
@@ -44,7 +44,7 @@ async function saveArchivedIds(ids: string[]): Promise<void> {
 
 // ── GET /api/admin/messages/[id] — full message ──────────────
 export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  await requireAdmin();
+  await requirePermission("messages.view");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Message not found");
 
@@ -70,7 +70,7 @@ export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── PATCH /api/admin/messages/[id] — markRead / archive ──────
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("messages.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Message not found");
 

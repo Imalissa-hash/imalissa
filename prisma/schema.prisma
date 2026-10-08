@@ -127,6 +127,12 @@ enum AdminRole {
   CONTENT
 }
 
+// Kind of admin-facing alert in the System Log (new order / new message).
+enum AdminAlertType {
+  ORDER
+  MESSAGE
+}
+
 enum ReviewStatus {
   PENDING
   APPROVED
@@ -742,8 +748,47 @@ model AdminUser {
 
   sessions    AdminSession[]
   auditLogs   AuditLog[]
+  alertsSeen  AdminAlert[]   @relation("AlertSeenBy")
 
   @@index([isActive])
+}
+
+/**
+ * Admin System Log entry: fires when a new order or a new contact message
+ * arrives, carries the actual content (title + body) so the alert itself
+ * says what happened, and records WHO marked it seen and when.
+ */
+model AdminAlert {
+  id        String         @id @default(cuid())
+  type      AdminAlertType
+  title     String
+  body      String?
+  link      String?
+  seenAt    DateTime?
+  seenById  String?
+  createdAt DateTime       @default(now())
+
+  seenBy AdminUser? @relation("AlertSeenBy", fields: [seenById], references: [id], onDelete: SetNull)
+
+  @@index([seenAt, createdAt])
+  @@index([type, createdAt])
+}
+
+/**
+ * Fine-grained role permissions (Admin → Roles & Permissions).
+ * One row per (role, permission); the full matrix for a role is written on
+ * save so an explicitly-revoked permission differs from "never configured"
+ * (no rows at all → built-in defaults apply).
+ */
+model RolePermission {
+  id         String    @id @default(cuid())
+  role       AdminRole
+  permission String
+  granted    Boolean   @default(true)
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([role, permission])
+  @@index([role])
 }
 
 model AdminSession {

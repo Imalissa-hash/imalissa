@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, notFound, publicMessage } from "@/lib/errors";
 import { sendMail, emailConfigured } from "@/lib/mail";
@@ -33,7 +33,7 @@ const schema = z.object({
  *                delivery:"manual" and the UI words it that way.
  */
 export const POST = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("customers.manage");
   const id = (await ctx?.params)?.id ?? "";
   if (!id) throw notFound("Customer not found");
 

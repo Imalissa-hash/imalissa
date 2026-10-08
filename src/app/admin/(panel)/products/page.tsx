@@ -8,6 +8,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { ProductsClient } from "@/components/admin/catalog/ProductsClient";
 import type { ProductFacets, ProductRow } from "@/components/admin/catalog/ProductsClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Products",
   robots: { index: false, follow: false },
@@ -78,6 +79,9 @@ export default async function AdminProductsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("products.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

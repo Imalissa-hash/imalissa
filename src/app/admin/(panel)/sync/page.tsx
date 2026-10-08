@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { SyncCenterClient } from "@/components/admin/sales/SyncCenterClient";
 import type { SyncLogRow, SyncStats } from "@/components/admin/sales/SyncCenterClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Sync Center",
   robots: { index: false, follow: false },
@@ -39,6 +40,9 @@ export default async function AdminSyncPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("sync.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

@@ -16,6 +16,7 @@ import { Panel, StatCard, Table, Th, Td, Empty } from "@/components/admin/ui";
 import { BarChart, Donut, LineChart, type SeriesPoint } from "@/components/admin/Charts";
 import { AnalyticsClient } from "@/components/admin/system/AnalyticsClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Analytics",
   robots: { index: false, follow: false },
@@ -75,6 +76,9 @@ function localKey(d: Date): string {
 }
 
 export default async function AnalyticsPage({ searchParams }: Props) {
+  const denied = await pageGuard("analytics.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const range = sp.range === "7" || sp.range === "90" ? Number(sp.range) : 30;
 

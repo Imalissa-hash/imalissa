@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { OrdersClient } from "@/components/admin/sales/OrdersClient";
 import type { OrderRow } from "@/components/admin/sales/OrdersClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Orders",
   robots: { index: false, follow: false },
@@ -32,6 +33,9 @@ export default async function AdminOrdersPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("orders.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

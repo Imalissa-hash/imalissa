@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, notFound } from "@/lib/errors";
 import {
@@ -92,7 +92,7 @@ async function loadSyncState(id: string) {
  * A failed push is never reported as success.
  */
 export const POST = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("orders.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Order not found");
 

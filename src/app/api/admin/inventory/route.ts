@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict, notFound } from "@/lib/errors";
 import { variantLabel } from "@/lib/utils";
@@ -78,7 +78,7 @@ const isOut = (p: { stock: number }) => p.stock <= 0;
 
 // ── GET /api/admin/inventory ───────────────────────────────
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("inventory.view");
 
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
@@ -115,7 +115,7 @@ export const GET = withApi(async (req: NextRequest) => {
 
 // ── PATCH /api/admin/inventory — atomic stock adjustment ───
 export const PATCH = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("inventory.manage");
   const body = parseBody(adjustSchema, await req.json().catch(() => ({})));
   const variantId = body.variantId ?? null;
   const { productId, delta, reason } = body;

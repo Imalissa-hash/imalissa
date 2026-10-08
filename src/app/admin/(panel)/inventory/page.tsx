@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { InventoryClient } from "@/components/admin/catalog/InventoryClient";
 import type { InventoryCounts, InventoryRow } from "@/components/admin/catalog/InventoryClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Inventory",
   robots: { index: false, follow: false },
@@ -22,6 +23,9 @@ export default async function AdminInventoryPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("inventory.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

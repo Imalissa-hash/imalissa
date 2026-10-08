@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma, Banner } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest } from "@/lib/errors";
 import type { BannerRow } from "@/components/admin/content/BannersManager";
@@ -65,7 +65,7 @@ function toRow(b: Banner): BannerRow {
 
 // ── GET /api/admin/homepage/banners — list (?position=) ───
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("homepage.view");
 
   const positionRaw = (new URL(req.url).searchParams.get("position") ?? "").trim();
   if (positionRaw && !POSITIONS.includes(positionRaw as Position)) {
@@ -83,7 +83,7 @@ export const GET = withApi(async (req: NextRequest) => {
 
 // ── POST /api/admin/homepage/banners — create ─────────────
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("homepage.manage");
   const body = parseBody(createSchema, await req.json().catch(() => ({})));
   const position = body.position ?? "HERO";
 

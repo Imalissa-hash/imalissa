@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { clientIp, jsonOk, withApi } from "@/lib/api";
 import { audit } from "@/lib/audit";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { badRequest } from "@/lib/errors";
 import { importPartnerCatalog, type CatalogImportSummary } from "@/server/external-commerce/catalog";
 import { ExternalCommerceError } from "@/server/external-commerce/errors";
@@ -19,7 +19,7 @@ import { ExternalCommerceError } from "@/server/external-commerce/errors";
  *                           short-lived cache from the import screen
  */
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("import.manage");
 
   const body = (await req.json().catch(() => null)) as {
     codes?: unknown;

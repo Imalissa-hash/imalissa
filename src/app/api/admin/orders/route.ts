@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { badRequest } from "@/lib/errors";
 import type { OrderRow } from "@/components/admin/sales/OrdersClient";
 
@@ -47,7 +47,7 @@ const querySchema = z.object({
 });
 
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("orders.view");
 
   const sp = req.nextUrl.searchParams;
   // parseBody reused for query-string validation (same zod + 400 contract).

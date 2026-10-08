@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma, type HomeSection } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, notFound } from "@/lib/errors";
 import type { SectionRow } from "@/components/admin/content/SectionsEditor";
@@ -71,7 +71,7 @@ function toRow(s: HomeSection): SectionRow {
 
 // ── GET /api/admin/homepage/sections/[id] — full detail ───
 export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  await requireAdmin();
+  await requirePermission("homepage.view");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Section not found");
 
@@ -84,7 +84,7 @@ export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 // ── PATCH /api/admin/homepage/sections/[id] — partial update ──
 // The `key` is immutable: the storefront may reference it (e.g. TEXT_ONLY rails).
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("homepage.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Section not found");
 
@@ -131,7 +131,7 @@ export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── DELETE /api/admin/homepage/sections/[id] ──────────────
 export const DELETE = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("homepage.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Section not found");
 

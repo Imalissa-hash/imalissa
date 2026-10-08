@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { ReviewsClient } from "@/components/admin/content/ReviewsClient";
 import type { ReviewRow } from "@/components/admin/content/ReviewsClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Reviews",
   robots: { index: false, follow: false },
@@ -48,6 +49,9 @@ export default async function AdminReviewsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("reviews.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

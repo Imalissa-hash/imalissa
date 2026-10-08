@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import type { MessageCounts, MessageRow } from "@/components/admin/sales/MessagesClient";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,7 @@ async function loadArchivedIds(): Promise<string[]> {
 }
 
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("messages.view");
 
   const sp = req.nextUrl.searchParams;
   const query = parseBody(querySchema, {

@@ -327,8 +327,9 @@ export function AdminsClient() {
 
       <p className="mt-3 text-[0.76rem] leading-relaxed text-mist-600">
         Roles are enforced per action — creating, changing and deleting admin accounts is restricted
-        to Super Admins on the server. Deactivating a Super Admin requires another active Super
-        Admin to exist.
+        to Super Admins on the server. What each role may actually do (orders, products, messages,
+        settings…) is decided tick-by-tick in <b>Roles &amp; Permissions</b>. Deactivating a Super
+        Admin requires another active Super Admin to exist.
       </p>
 
       {/* ── Add modal ─────────────────────────────────────────────── */}

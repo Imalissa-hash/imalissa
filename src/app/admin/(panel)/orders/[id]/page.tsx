@@ -6,6 +6,7 @@ import { OrderDetailClient } from "@/components/admin/sales/OrderDetailClient";
 import type { OrderDetail } from "@/components/admin/sales/OrderDetailClient";
 import { getConfig } from "@/server/external-commerce/config";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Order details",
   robots: { index: false, follow: false },
@@ -38,6 +39,9 @@ export default async function AdminOrderDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const denied = await pageGuard("orders.view");
+  if (denied) return denied;
+
   const { id } = await params;
 
   const order = await prisma.order.findUnique({ where: { id }, include: fullInclude });

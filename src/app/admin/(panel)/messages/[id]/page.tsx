@@ -5,6 +5,7 @@ import { BackLink } from "@/components/admin/AdminShell";
 import { MessageDetailClient } from "@/components/admin/sales/MessageDetailClient";
 import type { MessageDetail } from "@/components/admin/sales/MessageDetailClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Message",
   robots: { index: false, follow: false },
@@ -30,6 +31,9 @@ export default async function AdminMessageDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const denied = await pageGuard("messages.view");
+  if (denied) return denied;
+
   const { id } = await params;
 
   const message = await prisma.contactMessage.findUnique({ where: { id } });

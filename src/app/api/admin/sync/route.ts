@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import type { SyncLogRow, SyncStats } from "@/components/admin/sales/SyncCenterClient";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +46,7 @@ function scrub(value: string | null): string | null {
 }
 
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("sync.view");
 
   const sp = req.nextUrl.searchParams;
   const query = parseBody(querySchema, {

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { notFound } from "@/lib/errors";
 import { recalcRating } from "@/lib/reviews";
@@ -19,7 +19,7 @@ const patchSchema = z.object({
 
 // ── PATCH /api/admin/reviews/[id] — approve / hide (audited) ──
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("reviews.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Review not found");
 
@@ -58,7 +58,7 @@ export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 // ── DELETE /api/admin/reviews/[id] ────────────────────────
 // Review has no child rows (product/user cascade *into* it), so deletion is safe.
 export const DELETE = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("reviews.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Review not found");
 

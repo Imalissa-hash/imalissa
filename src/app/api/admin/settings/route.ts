@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest } from "@/lib/errors";
 import { getSettings, updateSettings } from "@/lib/settings";
@@ -182,7 +182,7 @@ const patchSchema = z.object({
 
 /** GET /api/admin/settings — all settings groups (display-only config). */
 export const GET = withApi(async () => {
-  await requireAdmin();
+  await requirePermission("settings.view");
   return jsonOk(await getSettings());
 });
 
@@ -191,7 +191,7 @@ export const GET = withApi(async () => {
  * Body: { group, value } (shape documented at the top of this file).
  */
 export const PATCH = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("settings.manage");
   rateLimit(`admin-settings:${clientIp(req)}`, 30, 60_000);
 
   const raw = await req.json().catch(() => null);

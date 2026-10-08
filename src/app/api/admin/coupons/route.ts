@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma, type Coupon } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict } from "@/lib/errors";
 import type { CouponRow } from "@/components/admin/content/CouponsClient";
@@ -137,7 +137,7 @@ function parseActive(raw: string): boolean | undefined {
 
 // ── GET /api/admin/coupons — list (q / active / page) ─────
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("coupons.view");
 
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
@@ -163,7 +163,7 @@ export const GET = withApi(async (req: NextRequest) => {
 
 // ── POST /api/admin/coupons — create ──────────────────────
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("coupons.manage");
   const body = parseBody(createSchema, await req.json().catch(() => ({})));
 
   const code = body.code.toUpperCase();

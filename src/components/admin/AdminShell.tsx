@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   BarChart3,
+  Bell,
   ChevronLeft,
   Download,
   ExternalLink,
@@ -21,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingBag,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Users,
@@ -28,6 +30,7 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+import { AlertBell } from "@/components/admin/AlertBell";
 
 interface AdminIdentity {
   name: string;
@@ -39,6 +42,8 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
+  /** Permission key required to see this entry (absent = always visible). */
+  perm?: string;
 }
 
 interface NavSection {
@@ -49,46 +54,53 @@ interface NavSection {
 const NAV: NavSection[] = [
   {
     title: "Overview",
-    items: [{ href: "/admin", label: "Dashboard", icon: Gauge, }],
+    items: [{ href: "/admin", label: "Dashboard", icon: Gauge }],
   },
   {
     title: "Catalog",
     items: [
-      { href: "/admin/products", label: "Products", icon: Package },
-      { href: "/admin/import", label: "Import products", icon: Download },
-      { href: "/admin/categories", label: "Categories", icon: LayoutGrid },
-      { href: "/admin/inventory", label: "Inventory", icon: Boxes },
+      { href: "/admin/products", label: "Products", icon: Package, perm: "products.view" },
+      { href: "/admin/import", label: "Import products", icon: Download, perm: "import.view" },
+      { href: "/admin/categories", label: "Categories", icon: LayoutGrid, perm: "categories.view" },
+      { href: "/admin/inventory", label: "Inventory", icon: Boxes, perm: "inventory.view" },
     ],
   },
   {
     title: "Sales",
     items: [
-      { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
-      { href: "/admin/sync", label: "Sync Center", icon: RefreshCcw },
-      { href: "/admin/coupons", label: "Coupons", icon: Gift },
+      { href: "/admin/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view" },
+      { href: "/admin/sync", label: "Sync Center", icon: RefreshCcw, perm: "sync.view" },
+      { href: "/admin/coupons", label: "Coupons", icon: Gift, perm: "coupons.view" },
     ],
   },
   {
     title: "Customers",
     items: [
-      { href: "/admin/customers", label: "Customers", icon: Users },
-      { href: "/admin/reviews", label: "Reviews", icon: Star },
-      { href: "/admin/messages", label: "Messages", icon: Inbox },
+      { href: "/admin/customers", label: "Customers", icon: Users, perm: "customers.view" },
+      { href: "/admin/reviews", label: "Reviews", icon: Star, perm: "reviews.view" },
+      { href: "/admin/messages", label: "Messages", icon: Inbox, perm: "messages.view" },
     ],
   },
   {
     title: "Storefront",
     items: [
-      { href: "/admin/homepage", label: "Homepage", icon: Sparkles },
-      { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/admin/homepage", label: "Homepage", icon: Sparkles, perm: "homepage.view" },
+      { href: "/admin/analytics", label: "Analytics", icon: BarChart3, perm: "analytics.view" },
     ],
   },
   {
     title: "System",
     items: [
-      { href: "/admin/settings", label: "Settings", icon: Settings },
-      { href: "/admin/admins", label: "Admins", icon: ShieldCheck },
-      { href: "/admin/audit", label: "Audit Log", icon: ScrollText },
+      { href: "/admin/settings", label: "Settings", icon: Settings, perm: "settings.view" },
+      { href: "/admin/admins", label: "Admins", icon: ShieldCheck, perm: "admins.view" },
+      {
+        href: "/admin/roles",
+        label: "Roles & Permissions",
+        icon: SlidersHorizontal,
+        perm: "roles.manage",
+      },
+      { href: "/admin/alerts", label: "System Log", icon: Bell, perm: "alerts.view" },
+      { href: "/admin/audit", label: "Audit Log", icon: ScrollText, perm: "audit.view" },
     ],
   },
 ];
@@ -97,11 +109,14 @@ const NAV: NavSection[] = [
 export function AdminShell({
   admin,
   logoSrc,
+  permissions,
   children,
 }: {
   admin: AdminIdentity;
   /** Uploaded site logo (Settings → Brand) shown beside the site name. */
   logoSrc?: string;
+  /** Permission keys the admin's role grants — drives nav visibility + bell. */
+  permissions: string[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -165,12 +180,19 @@ export function AdminShell({
   const isActive = (href: string) =>
     href === "/admin" ? pathname === "/admin" : pathname.startsWith(href);
 
+  // Sidebar entries the signed-in admin's role actually grants (page-level
+  // guards + API permissions still enforce server-side — this is display).
+  const visibleNav = NAV.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.perm || permissions.includes(item.perm)),
+  })).filter((section) => section.items.length > 0);
+
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-5 py-5">
         <Link href="/admin" className="block" aria-label="Admin dashboard">
           {/* linked={false} — this <Link> is already the anchor; a second one
-              inside (Logo's default) would be an <a> inside an <a>. */}
+              inside it (Logo's default) would be an <a> inside an <a>. */}
           <Logo linked={false} logoSrc={logoSrc} />
         </Link>
         <button
@@ -183,7 +205,7 @@ export function AdminShell({
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-6">
-        {NAV.map((section) => (
+        {visibleNav.map((section) => (
           <div key={section.title}>
             <p className="px-3 pb-2 text-[0.66rem] font-bold uppercase tracking-[0.2em] text-mist-600">
               {section.title}
@@ -293,6 +315,7 @@ export function AdminShell({
           </div>
 
           <div className="flex items-center gap-2">
+            {permissions.includes("alerts.view") && <AlertBell />}
             <Link
               href="/"
               target="_blank"

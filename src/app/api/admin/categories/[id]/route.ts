@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict, notFound } from "@/lib/errors";
 import { slugify } from "@/lib/utils";
@@ -60,7 +60,7 @@ async function assertNoCycle(id: string, parentId: string): Promise<void> {
 
 // ── PATCH /api/admin/categories/[id] ───────────────────────
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("categories.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Category not found");
 
@@ -114,7 +114,7 @@ export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── DELETE /api/admin/categories/[id] ──────────────────────
 export const DELETE = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("categories.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Category not found");
 

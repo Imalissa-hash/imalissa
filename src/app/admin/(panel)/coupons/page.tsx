@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { CouponsClient } from "@/components/admin/content/CouponsClient";
 import type { CouponRow } from "@/components/admin/content/CouponsClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Coupons",
   robots: { index: false, follow: false },
@@ -40,6 +41,9 @@ export default async function AdminCouponsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("coupons.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

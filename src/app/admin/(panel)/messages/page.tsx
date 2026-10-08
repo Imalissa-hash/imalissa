@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { MessagesClient } from "@/components/admin/sales/MessagesClient";
 import type { MessageCounts, MessageRow } from "@/components/admin/sales/MessagesClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Messages",
   robots: { index: false, follow: false },
@@ -32,6 +33,9 @@ export default async function AdminMessagesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("messages.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const one = (k: string) => {
     const v = sp[k];

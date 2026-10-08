@@ -6,6 +6,7 @@ import { HomepageClient } from "@/components/admin/content/HomepageClient";
 import type { SectionRow } from "@/components/admin/content/SectionsEditor";
 import type { BannerRow } from "@/components/admin/content/BannersManager";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Homepage",
   robots: { index: false, follow: false },
@@ -54,6 +55,9 @@ function toBannerRow(b: Banner): BannerRow {
 
 /** Admin homepage editor — sections order/visibility + banner slots. */
 export default async function AdminHomepagePage() {
+  const denied = await pageGuard("homepage.view");
+  if (denied) return denied;
+
   const [sections, banners] = await Promise.all([
     prisma.homeSection.findMany({ orderBy: { order: "asc" } }),
     prisma.banner.findMany({ orderBy: [{ position: "asc" }, { positionIndex: "asc" }] }),

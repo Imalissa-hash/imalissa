@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict, notFound } from "@/lib/errors";
 import { slugify } from "@/lib/utils";
@@ -140,7 +140,7 @@ const fullInclude = {
 } satisfies object;
 
 export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  await requireAdmin();
+  await requirePermission("products.view");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Product not found");
 
@@ -197,7 +197,7 @@ export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── PATCH /api/admin/products/[id] — partial + image/variant sync ──
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("products.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Product not found");
 
@@ -355,7 +355,7 @@ export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── DELETE /api/admin/products/[id] ────────────────────────
 export const DELETE = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("products.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Product not found");
 

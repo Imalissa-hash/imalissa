@@ -379,21 +379,20 @@ export async function placeOrder(params: PlaceOrderParams): Promise<PlaceOrderRe
       return created;
     }, ORDER_TX_OPTIONS);
 
-    // Admin bell notification — inserted AFTER commit: a notification
-    // failure must never roll back or slow down a placed order (the
-    // Telegram alert is fire-and-forget too).
+    // Admin System Log alert — inserted AFTER commit: an alert failure
+    // must never roll back or slow down a placed order (the Telegram
+    // alert is fire-and-forget too).
     try {
-      await prisma.notification.create({
+      await prisma.adminAlert.create({
         data: {
-          orderId: order.id,
           type: "ORDER",
           title: `New order ${order.orderNumber}`,
           body: `${address.fullName} · ${formatBdtSafe(totals.total)} · ${paymentMethod}`,
-          link: `/admin/orders/${order.orderNumber}`,
+          link: `/admin/orders/${order.id}`,
         },
       });
     } catch (err) {
-      console.error("[order] admin notification insert failed:", err);
+      console.error("[order] admin alert insert failed:", err);
     }
 
     return {

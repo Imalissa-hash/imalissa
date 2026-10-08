@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { BackLink } from "@/components/admin/AdminShell";
 import { ProductForm, type CategoryOption, type Option } from "@/components/admin/catalog/ProductForm";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "New product",
   robots: { index: false, follow: false },
@@ -38,6 +39,9 @@ async function loadData() {
 
 /** Create-product page. */
 export default async function NewProductPage() {
+  const denied = await pageGuard("products.view");
+  if (denied) return denied;
+
   const { brands, categories } = await loadData();
 
   return (

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { withApi, jsonOk, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { notFound, conflict } from "@/lib/errors";
 
@@ -17,7 +17,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * The restore is recorded as ORDER_RESTORE in the audit trail.
  */
 export const POST = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("orders.manage");
   const id = (await ctx?.params)?.id ?? "";
   if (!id) throw notFound("Order not found");
 

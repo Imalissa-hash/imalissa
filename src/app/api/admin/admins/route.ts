@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin, requireRole } from "@/lib/admin-auth";
+import { requireRole } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { hashPassword } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { conflict } from "@/lib/errors";
@@ -48,7 +49,7 @@ const createSchema = z.object({
 
 /** GET /api/admin/admins — list admin accounts (never passwordHash). */
 export const GET = withApi(async () => {
-  await requireAdmin();
+  await requirePermission("admins.view");
   const admins = await prisma.adminUser.findMany({
     select: SAFE_SELECT,
     orderBy: { createdAt: "asc" },

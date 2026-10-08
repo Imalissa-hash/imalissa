@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma, ProductStatus } from "@prisma/client";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict } from "@/lib/errors";
 import { appendSuffix, salePrice, slugify } from "@/lib/utils";
@@ -199,7 +199,7 @@ async function assertVariantSkusFree(
 
 // ── GET /api/admin/products ────────────────────────────────
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("products.view");
 
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
@@ -268,7 +268,7 @@ export const GET = withApi(async (req: NextRequest) => {
 
 // ── POST /api/admin/products — create ──────────────────────
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("products.manage");
   const body = parseBody(createSchema, await req.json().catch(() => ({})));
 
   const skuTaken = await prisma.product.findUnique({ where: { sku: body.sku }, select: { id: true } });

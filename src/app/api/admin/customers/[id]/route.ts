@@ -3,7 +3,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { conflict, notFound, publicMessage } from "@/lib/errors";
 import { hashPassword } from "@/lib/auth";
@@ -102,7 +102,7 @@ async function emailPasswordToCustomer(opts: {
 
 // ── GET /api/admin/customers/[id] — profile + orders summary ──
 export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  await requireAdmin();
+  await requirePermission("customers.view");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Customer not found");
 
@@ -184,7 +184,7 @@ export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
 
 // ── PATCH /api/admin/customers/[id] — block / unblock · set password ──
 export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("customers.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Customer not found");
 
@@ -283,7 +283,7 @@ export const PATCH = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
  * recently-viewed; coupon usages keep the order link with userId nulled.
  */
 export const DELETE = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("customers.manage");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Customer not found");
 

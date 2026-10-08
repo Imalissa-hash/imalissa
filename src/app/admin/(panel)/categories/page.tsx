@@ -4,6 +4,7 @@ import { AdminPageHeader } from "@/components/admin/AdminShell";
 import { CategoriesClient } from "@/components/admin/catalog/CategoriesClient";
 import type { CategoryTreeNode } from "@/components/admin/catalog/CategoriesClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Categories",
   robots: { index: false, follow: false },
@@ -11,6 +12,9 @@ export const metadata: Metadata = {
 
 /** Admin categories page — tree with product counts, server-rendered. */
 export default async function AdminCategoriesPage() {
+  const denied = await pageGuard("categories.view");
+  if (denied) return denied;
+
   const rows = await prisma.category.findMany({
     orderBy: [{ position: "asc" }, { name: "asc" }],
     include: { _count: { select: { products: true, children: true } } },

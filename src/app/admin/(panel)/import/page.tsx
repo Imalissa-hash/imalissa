@@ -13,6 +13,7 @@ import {
 } from "@/server/external-commerce/catalog";
 import { ExternalCommerceError } from "@/server/external-commerce/errors";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Import from partner",
   robots: { index: false, follow: false },
@@ -45,6 +46,9 @@ export default async function AdminImportPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const denied = await pageGuard("import.view");
+  if (denied) return denied;
+
   const sp = await searchParams;
   const refresh = sp.refresh === "1" || sp.refresh === "true";
 

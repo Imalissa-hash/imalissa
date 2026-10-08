@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 
 /**
  * Audit log API — read-only listing with filters + pagination.
@@ -79,7 +79,7 @@ const querySchema = z.object({
  * filter select from real data.
  */
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("audit.view");
 
   const sp = req.nextUrl.searchParams;
   // parseBody reused for query-string validation (same zod + 400 errors).

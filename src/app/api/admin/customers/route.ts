@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi, jsonOk, parseBody } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import type { CustomerRow } from "@/components/admin/sales/CustomersClient";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ const querySchema = z.object({
 });
 
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("customers.view");
 
   const sp = req.nextUrl.searchParams;
   const query = parseBody(querySchema, {

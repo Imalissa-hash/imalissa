@@ -10,6 +10,7 @@ import {
   type Option,
 } from "@/components/admin/catalog/ProductForm";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Edit product",
   robots: { index: false, follow: false },
@@ -48,6 +49,9 @@ export default async function EditProductPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const denied = await pageGuard("products.view");
+  if (denied) return denied;
+
   const { id } = await params;
 
   const [product, { brands, categories }] = await Promise.all([

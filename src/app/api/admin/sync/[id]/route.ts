@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { withApi, jsonOk } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { notFound } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +64,7 @@ function redact(value: unknown): string | null {
  * Request/response bodies are redacted server-side before leaving the API.
  */
 export const GET = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
-  await requireAdmin();
+  await requirePermission("sync.view");
   const id = await idFrom(ctx);
   if (!id) throw notFound("Sync log not found");
 

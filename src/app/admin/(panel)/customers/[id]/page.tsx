@@ -5,6 +5,7 @@ import { BackLink } from "@/components/admin/AdminShell";
 import { CustomerDetailClient } from "@/components/admin/sales/CustomerDetailClient";
 import type { CustomerDetail } from "@/components/admin/sales/CustomerDetailClient";
 
+import { pageGuard } from "@/components/admin/AccessDenied";
 export const metadata: Metadata = {
   title: "Customer details",
   robots: { index: false, follow: false },
@@ -18,6 +19,9 @@ export default async function AdminCustomerDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const denied = await pageGuard("customers.view");
+  if (denied) return denied;
+
   const { id } = await params;
 
   const user = await prisma.user.findUnique({

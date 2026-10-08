@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict } from "@/lib/errors";
 import { appendSuffix, slugify } from "@/lib/utils";
@@ -51,7 +51,7 @@ async function uniqueCategorySlug(base: string): Promise<string> {
 
 // ── GET /api/admin/categories — tree with product counts ───
 export const GET = withApi(async (req: NextRequest) => {
-  await requireAdmin();
+  await requirePermission("categories.view");
 
   const rows = await prisma.category.findMany({
     orderBy: [{ position: "asc" }, { name: "asc" }],
@@ -88,7 +88,7 @@ export const GET = withApi(async (req: NextRequest) => {
 
 // ── POST /api/admin/categories — create ────────────────────
 export const POST = withApi(async (req: NextRequest) => {
-  const admin = await requireAdmin();
+  const admin = await requirePermission("categories.manage");
   const body = parseBody(createSchema, await req.json().catch(() => ({})));
 
   if (body.parentId) {
