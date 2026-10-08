@@ -5,7 +5,7 @@
   "description": "Imalissa — premium multi-category e-commerce reseller platform",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "db:push": "prisma db push",
