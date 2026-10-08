@@ -2,15 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, MessageSquare, Package, ArrowRight, Play, Volume2 } from "lucide-react";
+import { Bell, MessageSquare, Package, ArrowRight } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
-import {
-  ALERT_SOUNDS,
-  loadAlertSound,
-  playAlertSound,
-  primeAlertAudio,
-  saveAlertSound,
-} from "@/lib/alert-sound";
+import { loadAlertSound, playAlertSound, primeAlertAudio } from "@/lib/alert-sound";
+import { AlertSoundSettings } from "@/components/admin/AlertSoundSettings";
 
 /**
  * Topbar alert bell: unseen count badge + dropdown with the actual
@@ -34,13 +29,8 @@ export function AlertBell() {
   const [items, setItems] = useState<AlertRow[]>([]);
   const [unseen, setUnseen] = useState(0);
   const [open, setOpen] = useState(false);
-  const [sound, setSound] = useState<string>("chime");
   const wrapRef = useRef<HTMLDivElement>(null);
-  /** This browser's sound choice (ref too, so polls never go stale). */
-  const soundRef = useRef<string>("chime");
-  /** Unseen count at the previous poll — a GROWTH = a new alert arrived. */
-  const prevUnseenRef = useRef<number | null>(null);
-  /** Ids already known, used to pick the newest arrival for the sound. */
+  /** Ids already known — a brand-new id means an alert just arrived. */
   const knownIdsRef = useRef<Set<string> | null>(null);
 
   const load = useCallback(async () => {
@@ -51,18 +41,34 @@ export function AlertBell() {
       if (json?.ok && json.data) {
         const nextItems: AlertRow[] = Array.isArray(json.data.items) ? json.data.items : [];
         const nextUnseen = Number(json.data.unseen) || 0;
+        const soundId = loadAlertSound(); // always the device's current choice
 
-        // Sound ONLY when the unseen count grows while this page is open
-        // (never on first load or a return visit): an order or message
-        // just landed — announce it with the chosen sound.
+        // Sound rules:
+        // • first load of this browser session with alerts already waiting
+        //   → announce ONCE ("You have 3 new alerts") — refreshes don't repeat
+        // • any later poll/focus revealing a brand-new id → an order or
+        //   message just landed → announce it with its actual title
         const firstLoad = knownIdsRef.current === null;
-        if (!firstLoad && prevUnseenRef.current !== null && nextUnseen > prevUnseenRef.current) {
-          const fresh =
-            nextItems.find((row) => !knownIdsRef.current!.has(row.id)) ?? nextItems[0];
-          if (fresh) playAlertSound(soundRef.current, fresh.title);
+        if (firstLoad) {
+          let announced = false;
+          try {
+            announced = Boolean(sessionStorage.getItem("imalissa.alertAnnounced"));
+          } catch {
+            /* storage blocked — announcing once per load is still correct enough */
+          }
+          if (nextUnseen > 0 && !announced) {
+            playAlertSound(soundId, `You have ${nextUnseen} new alerts`);
+            try {
+              sessionStorage.setItem("imalissa.alertAnnounced", "1");
+            } catch {
+              /* ignore */
+            }
+          }
+        } else {
+          const fresh = nextItems.filter((row) => !knownIdsRef.current!.has(row.id));
+          if (fresh.length > 0) playAlertSound(soundId, fresh[0].title);
         }
         knownIdsRef.current = new Set(nextItems.map((row) => row.id));
-        prevUnseenRef.current = nextUnseen;
 
         setItems(nextItems);
         setUnseen(nextUnseen);
@@ -73,8 +79,6 @@ export function AlertBell() {
   }, []);
 
   useEffect(() => {
-    soundRef.current = loadAlertSound();
-    setSound(soundRef.current);
     primeAlertAudio(); // resume audio on the first click/keypress
     load();
     const timer = setInterval(load, 30_000);
@@ -94,19 +98,6 @@ export function AlertBell() {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
-
-  /** Pick + persist this browser's alert sound. */
-  const chooseSound = (id: string) => {
-    soundRef.current = id;
-    setSound(id);
-    saveAlertSound(id);
-  };
-
-  /** Preview the currently selected sound. */
-  const testSound = () => {
-    primeAlertAudio();
-    playAlertSound(soundRef.current, "Test — a new order has just arrived");
-  };
 
   return (
     <div ref={wrapRef} className="relative">
@@ -192,35 +183,7 @@ export function AlertBell() {
             </ul>
           )}
 
-          {/* Sound picker — synthesized/spoken right in the browser, so no
-              audio files are downloaded; choice is saved per device. */}
-          <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] px-3.5 py-2.5">
-            <label
-              className="flex min-w-0 items-center gap-1.5 text-[0.74rem] text-mist-500"
-              title="Sound played when a new order or message arrives while this panel is open"
-            >
-              <Volume2 size={12} className="shrink-0" />
-              <span className="sr-only">Alert sound</span>
-              <select
-                value={sound}
-                onChange={(e) => chooseSound(e.target.value)}
-                aria-label="Alert sound"
-                className="max-w-[7rem] rounded-md border border-white/10 bg-ink-950 px-1.5 py-1 text-[0.74rem] text-mist-300 outline-none transition focus:border-gold-500/40"
-              >
-                {ALERT_SOUNDS.map((s) => (
-                  <option key={s.id} value={s.id} title={s.hint}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              onClick={testSound}
-              className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[0.72rem] text-mist-400 transition hover:border-gold-500/40 hover:text-gold-300"
-            >
-              <Play size={10} /> Test
-            </button>
-          </div>
+          <AlertSoundSettings inline />
         </div>
       )}
     </div>

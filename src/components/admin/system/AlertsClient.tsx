@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Panel, Table, Th, Td, Empty, Btn, BusyBtn } from "@/components/admin/ui";
+import { AlertSoundSettings } from "@/components/admin/AlertSoundSettings";
 import { cn, formatDate, timeAgo } from "@/lib/utils";
 
 /**
@@ -115,6 +116,7 @@ export function AlertsClient() {
 
   return (
     <div>
+      <AlertSoundSettings />
       {error && (
         <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-[0.84rem] text-danger">
           <span className="flex gap-2">
