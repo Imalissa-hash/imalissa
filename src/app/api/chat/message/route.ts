@@ -4,6 +4,7 @@ import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { unauthorized } from "@/lib/errors";
 import { getSessionUser } from "@/lib/auth";
+import { generateAutoReply } from "@/lib/auto-reply";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,25 @@ export const POST = withApi(async (req: NextRequest) => {
   await prisma.chatMessage.create({
     data: { threadId: thread.id, sender: "USER", body: body.body },
   });
+
+  // Instant auto reply — only while no human has taken over this thread
+  // (the first ADMIN message switches auto replies off for good).
+  const humanReplies = await prisma.chatMessage.count({
+    where: { threadId: thread.id, sender: "ADMIN" },
+  });
+  if (humanReplies === 0) {
+    try {
+      const autoBody = await generateAutoReply({ userId: user.id, text: body.body });
+      if (autoBody) {
+        await prisma.chatMessage.create({
+          data: { threadId: thread.id, sender: "AUTO", body: autoBody },
+        });
+      }
+    } catch {
+      // the auto reply must never block the customer's own message
+    }
+  }
+
   await prisma.chatThread.update({
     where: { id: thread.id },
     data: { lastMessageAt: new Date() },

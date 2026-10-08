@@ -41,6 +41,9 @@ export const GET = withApi(async (req: NextRequest) => {
         messages: {
           orderBy: { createdAt: "desc" },
           take: 1,
+          // Preview = the last HUMAN message: the auto responder's boilerplate
+          // would otherwise hide what the customer actually asked.
+          where: { sender: { not: "AUTO" } },
           select: { body: true, sender: true, createdAt: true },
         },
       },
@@ -67,7 +70,7 @@ export const GET = withApi(async (req: NextRequest) => {
       email: t.user.email,
       lastBody: t.messages[0]?.body ?? null,
       lastSender: t.messages[0]?.sender ?? null,
-      lastAt: (t.messages[0]?.createdAt ?? t.lastMessageAt).toISOString(),
+      lastAt: t.lastMessageAt.toISOString(),
       unread: unreadMap.get(t.id) ?? 0,
       createdAt: t.createdAt.toISOString(),
     })),

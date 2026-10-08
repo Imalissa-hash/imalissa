@@ -19,7 +19,7 @@ type ThreadRow = {
   phone: string | null;
   email: string | null;
   lastBody: string | null;
-  lastSender: "USER" | "ADMIN" | null;
+  lastSender: "USER" | "ADMIN" | "AUTO" | null;
   lastAt: string;
   unread: number;
   createdAt: string;
@@ -27,7 +27,7 @@ type ThreadRow = {
 
 type ConvMessage = {
   id: string;
-  sender: "USER" | "ADMIN";
+  sender: "USER" | "ADMIN" | "AUTO";
   body: string;
   readAt: boolean;
   createdAt: string;
@@ -410,7 +410,7 @@ export function ChatsClient() {
                     key={m.id}
                     className={cn(
                       "flex",
-                      m.sender === "ADMIN" ? "justify-end" : "justify-start"
+                      m.sender === "USER" ? "justify-start" : "justify-end"
                     )}
                   >
                     <div
@@ -418,7 +418,9 @@ export function ChatsClient() {
                         "max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
                         m.sender === "ADMIN"
                           ? "rounded-br-sm bg-gold-500 text-ink-950"
-                          : "rounded-tl-sm border border-white/10 bg-white/5 text-mist-100"
+                          : m.sender === "AUTO"
+                            ? "rounded-br-sm border border-dashed border-gold-500/25 bg-gold-500/[0.06] text-mist-400"
+                            : "rounded-tl-sm border border-white/10 bg-white/5 text-mist-100"
                       )}
                     >
                       <p className="whitespace-pre-wrap break-words">{m.body}</p>
@@ -427,13 +429,16 @@ export function ChatsClient() {
                           "mt-1 text-[10px]",
                           m.sender === "ADMIN"
                             ? "text-ink-900/60"
-                            : "text-mist-500"
+                            : m.sender === "AUTO"
+                              ? "text-mist-600"
+                              : "text-mist-500"
                         )}
                         title={formatDate(m.createdAt)}
                       >
                         {timeAgo(m.createdAt)}
                         {m.sender === "USER" &&
                           (m.readAt ? " · seen by shop" : " · not seen yet")}
+                        {m.sender === "AUTO" && " · auto reply"}
                       </p>
                     </div>
                   </div>

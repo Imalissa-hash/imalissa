@@ -6,7 +6,7 @@ import { Loader2, LogIn, MessageCircle, Send, X } from "lucide-react";
 
 type ChatMessage = {
   id: string;
-  sender: "USER" | "ADMIN";
+  sender: "USER" | "ADMIN" | "AUTO";
   body: string;
   createdAt: string;
 };
@@ -219,15 +219,22 @@ export function SupportChat() {
                       className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                         m.sender === "USER"
                           ? "rounded-br-sm bg-gold-500 text-ink-950"
-                          : "rounded-tl-sm border border-white/10 bg-white/5 text-mist-100"
+                          : m.sender === "AUTO"
+                            ? "rounded-tl-sm border border-dashed border-white/15 bg-white/[0.03] text-mist-400"
+                            : "rounded-tl-sm border border-white/10 bg-white/5 text-mist-100"
                       }`}
                     >
                       <p className="whitespace-pre-wrap break-words">{m.body}</p>
                       <p
                         className={`mt-1 text-[10px] ${
-                          m.sender === "USER" ? "text-ink-900/60" : "text-mist-500"
+                          m.sender === "USER"
+                            ? "text-ink-900/60"
+                            : m.sender === "AUTO"
+                              ? "text-mist-600"
+                              : "text-mist-500"
                         }`}
                       >
+                        {m.sender === "AUTO" ? "Auto reply · " : ""}
                         {timeShort(m.createdAt)}
                       </p>
                     </div>
