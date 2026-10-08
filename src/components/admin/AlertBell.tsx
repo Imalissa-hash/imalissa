@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, MessageSquare, Package, ArrowRight } from "lucide-react";
+import { Bell, Check, CheckCircle2, MessageSquare, Package, ArrowRight } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { loadAlertSound, playAlertSound, primeAlertAudio } from "@/lib/alert-sound";
 import { AlertSoundSettings } from "@/components/admin/AlertSoundSettings";
@@ -22,6 +22,7 @@ interface AlertRow {
   body: string | null;
   link: string | null;
   seenAt: string | null;
+  seenByName: string | null;
   createdAt: string;
 }
 
@@ -99,6 +100,31 @@ export function AlertBell() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
+  /** Mark one alert seen from the dropdown (stays open, badge updates). */
+  const markSeen = async (row: AlertRow) => {
+    if (row.seenAt) return;
+    try {
+      const res = await fetch(`/api/admin/alerts/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "seen" }),
+      });
+      const json = await res.json().catch(() => null);
+      if (json?.ok && json.data) {
+        setItems((prev) =>
+          prev.map((r) =>
+            r.id === row.id
+              ? { ...r, seenAt: json.data.seenAt, seenByName: json.data.seenByName }
+              : r
+          )
+        );
+        setUnseen((u) => Math.max(0, u - 1));
+      }
+    } catch {
+      /* transient failure — the System Log page still has the button */
+    }
+  };
+
   return (
     <div ref={wrapRef} className="relative">
       <button
@@ -140,14 +166,17 @@ export function AlertBell() {
           ) : (
             <ul className="max-h-[22rem] overflow-y-auto">
               {items.map((row) => (
-                <li key={row.id}>
+                <li
+                  key={row.id}
+                  className={cn(
+                    "flex items-start gap-1.5 border-b border-white/[0.05] px-3.5 py-2.5 transition hover:bg-white/[0.04]",
+                    !row.seenAt && "bg-gold-500/[0.05]"
+                  )}
+                >
                   <Link
                     href={row.link || "/admin/alerts"}
                     onClick={() => setOpen(false)}
-                    className={cn(
-                      "flex gap-2.5 border-b border-white/[0.05] px-3.5 py-2.5 transition hover:bg-white/[0.04]",
-                      !row.seenAt && "bg-gold-500/[0.05]"
-                    )}
+                    className="flex min-w-0 flex-1 gap-2.5"
                   >
                     <span
                       className={cn(
@@ -178,6 +207,25 @@ export function AlertBell() {
                       </span>
                     </span>
                   </Link>
+
+                  {/* Side Seen button — marks this alert seen right here;
+                      once done it becomes a green check with the name. */}
+                  {row.seenAt ? (
+                    <span
+                      title={`Seen by ${row.seenByName ?? "someone"}`}
+                      className="mt-0.5 flex h-6 shrink-0 items-center justify-center text-emerald-400/90"
+                    >
+                      <CheckCircle2 size={14} />
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => markSeen(row)}
+                      aria-label={`Mark as seen: ${row.title}`}
+                      className="mt-0.5 h-6 shrink-0 rounded-md border border-gold-500/30 bg-gold-500/10 px-2 text-[0.66rem] font-semibold uppercase tracking-wide text-gold-300 transition hover:border-gold-400 hover:bg-gold-500/20"
+                    >
+                      Seen
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
