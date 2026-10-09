@@ -4,19 +4,23 @@ import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { hashPassword, needsRehash, startSession, verifyPassword } from "@/lib/auth";
 import { badRequest, unauthorized } from "@/lib/errors";
+import { issueOtp, otpAvailable } from "@/lib/otp";
 import { mergeCarts } from "@/lib/cart";
 import { cookies } from "next/headers";
 
 /**
- * Login with email/phone + password.
+ * Step 1 of sign-in: password first, then — when codes can be delivered —
+ * the emailed 6-digit code. No session cookie is set on the code path:
+ * /api/auth/verify-otp is what starts the session after the code matches.
  *
- * The password is checked FIRST (no account enumeration) and the session
- * starts immediately. The emailed 6-digit code step is temporarily out while
- * Render free blocks outbound email (see git history for it) —
- * /api/auth/verify-otp stays reachable so the code step can be re-enabled
- * once a working email channel exists.
+ * The password is checked FIRST (no code is ever sent to an address that
+ * didn't prove the password — prevents email bombing / enumeration).
  *
- * Response: { id, name, email, phone }
+ * Response with a channel: { otpRequired: true, email, delivery, devCode? }
+ * Response with no channel (or a failed send): { id, name, email, phone } —
+ * password-only sign-in, the same behavior as before the code step existed.
+ * A broken mail channel must never lock customers out of their own accounts,
+ * and nothing here ever claims an email was sent that was not.
  */
 const schema = z.object({
   identifier: z.string().min(3, "Enter your email or phone"),
@@ -54,8 +58,41 @@ export const POST = withApi(async (req: NextRequest) => {
 
   if (user.status === "BLOCKED") throw badRequest("Your account has been suspended. Contact support.");
 
-  // Merge any guest cart into the account, then start the session right away
-  // (the same steps /api/auth/verify-otp used to run after the code matched).
+  // Emailed code step — only when a channel can actually deliver the code.
+  if (otpAvailable()) {
+    if (!user.email) {
+      // Every account created from now on has an email (signup requires it for
+      // the OTP). A legacy account without one cannot be code-verified.
+      throw badRequest(
+        "This account has no email address, so a verification code cannot be sent. Please contact support to add one."
+      );
+    }
+    try {
+      const otp = await issueOtp("login", user.email, { userId: user.id });
+      // No session yet — /api/auth/verify-otp starts it once the code matches.
+      return jsonOk({
+        otpRequired: true,
+        email: otp.email,
+        delivery: otp.delivery,
+        ...(otp.devCode ? { devCode: otp.devCode } : {}),
+      });
+    } catch (err) {
+      // Channel configured but the send failed (blocked port, bad key, quota).
+      // issueOtp already logged the real failure; falling through signs the
+      // customer in with the verified password instead of locking them out.
+      console.error("[auth] login: verification code unavailable — password-only sign-in:", err);
+      // Drop the half-open challenge so no code path survives next to the
+      // password-only session started below (verify/resend would otherwise
+      // still find the row until it expires).
+      await prisma.siteSetting
+        .delete({ where: { key: `otp:login:${user.email}` } })
+        .catch(() => undefined);
+    }
+  }
+
+  // Password-only path (no channel / failed send): merge any guest cart,
+  // then start the session right away (the same steps
+  // /api/auth/verify-otp runs after the code matched).
   const store = await cookies();
   const guest = store.get("imalissa_guest")?.value ?? null;
   if (guest) await mergeCarts(user.id, guest);

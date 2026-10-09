@@ -4,18 +4,26 @@ import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { hashPassword, startSession } from "@/lib/auth";
 import { badRequest, conflict } from "@/lib/errors";
+import { issueOtp, otpAvailable } from "@/lib/otp";
 import { mergeCarts } from "@/lib/cart";
 import { cookies } from "next/headers";
 
 /**
- * Signup: create the account and start the session in one step.
+ * Step 1 of signup with email verification.
  *
- * (The emailed verification-code step is temporarily out while Render free
- * blocks outbound email — git history has it, and /api/auth/verify-otp stays
- * reachable for a later re-enable. Email stays REQUIRED: it is the account's
- * recovery channel.)
+ * When codes can be delivered (Brevo HTTPS / Gmail SMTP / dev mode) nothing
+ * is written to the user table yet: the pending account (password only as a
+ * hash) is handed to issueOtp("register", email) and only
+ * /api/auth/verify-otp creates the account + session. Email is therefore
+ * REQUIRED — it is the OTP channel.
  *
- * Response: { id, name, email, phone }
+ * With NO mail channel the signup completes in one step (create + session),
+ * exactly as before the code step existed — a server without mail config
+ * must still be able to register customers, and no email is ever claimed
+ * as sent without a real send.
+ *
+ * Response with a channel: { otpRequired: true, email, delivery, devCode? }
+ * Response without one:    { id, name, email, phone }
  */
 const registerSchema = z.object({
   name: z.string().min(2, "Please enter your name").max(80),
@@ -42,8 +50,38 @@ export const POST = withApi(async (req: NextRequest) => {
     );
   }
 
-  // Create the account and sign the customer in (the unique email/phone are
-  // enforced by the DB — the pre-flight above covers normal double submits).
+  // Emailed code step — hold the pending account until the code is confirmed
+  // (issueOtp reports NOT_CONFIGURED / 502 honestly if the channel cannot
+  // deliver; that failure falls through to one-step signup below so a broken
+  // mail setup never blocks new customers — and never fakes a sent email).
+  if (otpAvailable()) {
+    try {
+      const otp = await issueOtp("register", email, {
+        name: body.name.trim(),
+        email,
+        phone: body.phone,
+        passwordHash: await hashPassword(body.password),
+      });
+      // No account and no session yet — /api/auth/verify-otp does both.
+      return jsonOk({
+        otpRequired: true,
+        email: otp.email,
+        delivery: otp.delivery,
+        ...(otp.devCode ? { devCode: otp.devCode } : {}),
+      });
+    } catch (err) {
+      console.error("[auth] register: verification code unavailable — signing up without the code step:", err);
+      // No code was delivered — clear the pending row so a stale challenge
+      // cannot sit next to the account created directly below.
+      await prisma.siteSetting
+        .delete({ where: { key: `otp:register:${email}` } })
+        .catch(() => undefined);
+    }
+  }
+
+  // One-step signup (no channel / failed send): create the account and sign
+  // the customer in (the unique email/phone are enforced by the DB — the
+  // pre-flight above covers normal double submits).
   let user;
   try {
     user = await prisma.user.create({

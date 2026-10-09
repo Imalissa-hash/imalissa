@@ -65,6 +65,18 @@ function devMode(): boolean {
   return process.env.OTP_DEV_MODE === "true";
 }
 
+/**
+ * True when a code can actually reach the customer — a real email channel
+ * (Brevo key or SMTP_*) exists, or dev delivery is explicitly enabled.
+ * Sign-up/sign-in use this to pick between the emailed code step and
+ * password-only sign-in: with NO channel the code step is skipped instead of
+ * erroring (so a server without mail config can still sign customers in),
+ * and nothing is ever reported as "sent" without a real send.
+ */
+export function otpAvailable(): boolean {
+  return emailConfigured() || devMode();
+}
+
 /** Drop expired OTP rows (called on every issue — keeps the table tiny). */
 async function cleanupExpired(): Promise<void> {
   try {
