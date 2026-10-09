@@ -1,3 +1,5 @@
+import { promises as fsp } from "node:fs";
+import path from "node:path";
 import { prisma } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { availablePaymentMethods } from "@/server/payment";
@@ -9,6 +11,10 @@ import { availablePaymentMethods } from "@/server/payment";
  *      in the facts loaded below (live settings, enabled payment methods,
  *      the customer's own orders). Key lives in .env.local / Render env,
  *      is read server-side only, and never appears in output or logs.
+ *      A message with a photo goes through Gemini VISION: the model names
+ *      the product, the catalog is searched with those keywords, and the
+ *      answer is composed from the REAL row (name, price, stock) — the AI
+ *      never prices anything itself.
  *   2. No key, or the call fails/times out (8 s) → the deterministic rule
  *      engine answers from the same real data. We never fake an AI.
  *
@@ -19,19 +25,52 @@ import { availablePaymentMethods } from "@/server/payment";
 
 const AI_TIMEOUT_MS = 8_000;
 
-export type AutoReplyInput = { userId: string; text: string };
+export type AutoReplyInput = { userId: string; text: string; imageUrl?: string | null };
+export type AutoReplyResult = { text: string; imageUrl?: string | null };
 
-export async function generateAutoReply(input: AutoReplyInput): Promise<string | null> {
+export async function generateAutoReply(input: AutoReplyInput): Promise<AutoReplyResult | null> {
   const key = process.env.GEMINI_API_KEY?.trim();
+
+  // A photo goes through the vision flow — the rules engine has no eyes.
+  if (input.imageUrl) {
+    if (key) {
+      try {
+        const photo = await identifyPhoto(key, input);
+        if (photo) return photo;
+      } catch {
+        // fall through to the honest "couldn't identify" answer below
+      }
+    }
+    return { text: photoUnknownReply(input.text) };
+  }
+
   if (key) {
     try {
       const ai = await askGemini(key, input);
-      if (ai) return ai;
+      if (ai) return { text: ai };
     } catch {
       // fall through to the rules — an AI hiccup must never block the chat
     }
   }
-  return ruleReply(input);
+  const rules = await ruleReply(input);
+  return rules ? { text: rules } : null;
+}
+
+/** Chat photos may only live under /uploads/chat with a known extension. */
+const CHAT_IMAGE_RE = /^\/uploads\/chat\/([A-Za-z0-9._-]+\.(?:jpg|png|webp))$/;
+const chatImageKey = (imageUrl: string) => CHAT_IMAGE_RE.exec(imageUrl)?.[1] ?? null;
+
+const mimeOf = (file: string) =>
+  file.endsWith(".png")
+    ? "image/png"
+    : file.endsWith(".webp")
+      ? "image/webp"
+      : "image/jpeg";
+
+/** True when the customer wrote in English (empty/photo-only → Bangla). */
+function isEnglish(text: string): boolean {
+  if (!text.trim()) return false;
+  return !/[\u0980-\u09FF]/.test(text) && !/\b(ki|kemon|dorkar|koto|ache|ase|na|hy|tumi|apni|bhai|dada|vai)\b/i.test(text);
 }
 
 /* ───────────────────────── real-data context ───────────────────────── */
@@ -160,6 +199,224 @@ Do NOT add any footer, disclaimer or signature line — just the answer.`;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/* ─────────────────── photo → product (Gemini vision) ────────────────── */
+
+/** Load a customer's chat photo: disk first, then the durable DB copy. */
+async function loadChatImage(imageUrl: string): Promise<{ data: string; mime: string } | null> {
+  const file = chatImageKey(imageUrl);
+  if (!file) return null;
+
+  const onDisk = await fsp
+    .readFile(path.join(process.cwd(), "public", "uploads", "chat", file))
+    .catch(() => null);
+  if (onDisk?.length) return { data: onDisk.toString("base64"), mime: mimeOf(file) };
+
+  const row = await prisma.storedImage
+    .findUnique({ where: { key: `chat/${file}` } })
+    .catch(() => null);
+  if (row?.bytes?.length) {
+    return { data: Buffer.from(row.bytes).toString("base64"), mime: row.mime || mimeOf(file) };
+  }
+  return null;
+}
+
+type CatalogHit = {
+  name: string;
+  slug: string;
+  price: number;
+  compareAtPrice: number | null;
+  discountPercent: number;
+  stock: number;
+  category: string;
+  image: string | null;
+};
+
+/**
+ * Search ACTIVE products by the vision output, best keyword score first.
+ *
+ * Vision answers with *phrases* ("menstrual heating pad") while real names
+ * word them differently ("Portable Menstrual Heating & Vibration Massage
+ * Belt"), so a whole-phrase `contains` matches nothing. We therefore match
+ * the individual words too and score each candidate by how many distinct
+ * requested words its name carries (a full phrase counts double). Only a
+ * score ≥ 2 is reported — a single generic word ("pad" in "Padlock") is
+ * never enough to quote a price, and no match honestly says so.
+ */
+async function matchCatalog(keywords: string[], productName = ""): Promise<CatalogHit[]> {
+  const phrases = [...keywords, productName]
+    .map((k) => k.trim().toLowerCase())
+    .filter((k) => k.length >= 3)
+    .slice(0, 10);
+  if (!phrases.length) return [];
+
+  const words = [
+    ...new Set(
+      phrases.flatMap((p) => p.split(/[^a-z0-9]+/)).filter((w) => w.length >= 3)
+    ),
+  ];
+  if (!words.length) return [];
+
+  const rows = await prisma.product.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: words.map((w) => ({ name: { contains: w } })),
+    },
+    take: 40,
+    select: {
+      name: true,
+      slug: true,
+      price: true,
+      compareAtPrice: true,
+      discountPercent: true,
+      stock: true,
+      category: { select: { name: true } },
+      images: {
+        orderBy: { position: "asc" },
+        take: 1,
+        select: { url: true },
+      },
+    },
+  });
+
+  const scored = rows
+    .map((p) => {
+      const hay = p.name.toLowerCase();
+      // distinct requested words present in the name, +2 per full phrase
+      const wordsHit = words.filter((w) => hay.includes(w)).length;
+      const phraseHit = phrases.filter((ph) => hay.includes(ph)).length * 2;
+      return {
+        name: p.name,
+        slug: p.slug,
+        price: Number(p.price),
+        compareAtPrice: p.compareAtPrice === null ? null : Number(p.compareAtPrice),
+        discountPercent: p.discountPercent,
+        stock: p.stock,
+        category: p.category.name,
+        image: p.images[0]?.url ?? null,
+        score: wordsHit + phraseHit,
+      };
+    })
+    .filter((p) => p.score >= 2)
+    .sort((a, b) => b.score - a.score || b.stock - a.stock);
+
+  return scored.slice(0, 3);
+}
+
+/**
+ * Photo flow: Gemini VISION reads the customer's photo and returns short
+ * search keywords as JSON. The catalog is then searched with those
+ * keywords and the answer is composed from the REAL product rows — the AI
+ * never names a price, a stock level or a policy on its own. The matched
+ * product's photo comes back too, so the customer sees it in the chat and
+ * can download it from the site.
+ */
+async function identifyPhoto(key: string, input: AutoReplyInput): Promise<AutoReplyResult | null> {
+  if (!input.imageUrl) return null;
+  const img = await loadChatImage(input.imageUrl);
+  if (!img) return null;
+
+  const english = isEnglish(input.text);
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
+
+  const system = `You identify product photos for Imalissa, an online store in Bangladesh.
+Look at the image and answer with ONLY a JSON object:
+{"product": "short product name in English", "keywords": ["3-8 lowercase English search words for the product type, brand, color and distinguishing features"]}
+Keywords must be words a shop would use in a product NAME (e.g. "saree silk pink", "earbuds wireless", "tshirt polo cotton"). If the image shows no real product, answer {"product":"", "keywords":[]}.`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
+  let keywords: string[] = [];
+  let productName = "";
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inline_data: { mime_type: img.mime, data: img.data } },
+              { text: input.text.trim() || "Identify this product." },
+            ],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: 512,
+          temperature: 0.2,
+          responseMimeType: "application/json",
+        },
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      console.warn(`[auto-reply] gemini vision HTTP ${res.status} — photo unidentified`);
+      return null;
+    }
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const out = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    const parsed = JSON.parse(out.trim()) as { product?: string; keywords?: string[] };
+    productName = (parsed.product ?? "").trim().slice(0, 120);
+    keywords = Array.isArray(parsed.keywords) ? parsed.keywords : [];
+  } catch (err) {
+    console.warn(
+      `[auto-reply] gemini vision failed (${err instanceof Error ? err.name : "?"}) — photo unidentified`
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const hits = await matchCatalog(keywords, productName);
+  if (!hits.length) {
+    // Honest answer: the photo was seen but nothing in our catalog matched.
+    return {
+      text: english
+        ? `Thanks for the photo! I could see ${productName ? productName : "the product"}, but I couldn't find it in Imalissa's catalog. Send me the product name or a link instead — our team will also reply here personally soon.`
+        : `ছবির জন্য ধন্যবাদ! ${productName ? productName : "পণ্যটি"} আমি দেখতে পেছিলাম, কিন্তু আমাদের Imalissa ক্যাটালগে মিল পাওয়া যায়নি। পণ্যের নাম বা লিংক পাঠান — আমাদের টিম এখানেই উত্তর দেবে।`,
+    };
+  }
+
+  const top = hits[0];
+  const money = (n: number) => `৳${Math.round(n).toLocaleString("en-US")}`;
+  const lines: string[] = [];
+
+  if (english) {
+    lines.push(`I found it in our catalog: ${top.name} (${top.category}).`);
+    lines.push(`Price: ${money(top.price)}${top.discountPercent > 0 ? ` — ${top.discountPercent}% off${top.compareAtPrice ? `, was ${money(top.compareAtPrice)}` : ""}` : ""}.`);
+    lines.push(
+      top.stock > 0
+        ? `In stock — ${top.stock} pcs available right now.`
+        : `Out of stock at the moment; our team can tell you when it returns.`
+    );
+    if (hits[1]) lines.push(`Also similar: ${hits[1].name} — ${money(hits[1].price)}.`);
+    lines.push(`Details: ${top.slug ? `/product/${top.slug}` : "ask us here"}`);
+  } else {
+    lines.push(`ছবি থেকে খুঁজে পেয়েছি: ${top.name} (${top.category})।`);
+    lines.push(`দাম: ${money(top.price)}${top.discountPercent > 0 ? ` — ${top.discountPercent}% ছাড়${top.compareAtPrice ? ` (আগে ${money(top.compareAtPrice)})` : ""}` : ""}।`);
+    lines.push(
+      top.stock > 0
+        ? `স্টকে আছে — এখন ${top.stock} টি পাওয়া যাচ্ছে।`
+        : `এই মুহূর্তে স্টক নেই; কবে আসবে টিম জানিয়ে দেবে।`
+    );
+    if (hits[1]) lines.push(`এরকম আরেকটি: ${hits[1].name} — ${money(hits[1].price)}।`);
+    lines.push(`বিস্তারিত: ${top.slug ? `/product/${top.slug}` : "এখানেই জিজ্ঞেস করুন"}`);
+  }
+
+  return { text: lines.join("\n"), imageUrl: top.image };
+}
+
+/** Honest fallback when the photo cannot be read or matched — never fake. */
+function photoUnknownReply(text: string): string {
+  return isEnglish(text)
+    ? "Sorry, I couldn't identify a product in that photo. Send me the product name or a link instead — our team will also reply here personally soon."
+    : "দুঃখিত, ছবিটি দেখে কোনো পণ্য চিনতে পারিনি। পণ্যের নাম বা লিংক পাঠান — আমাদের টিম এখানেই উত্তর দেবে।";
 }
 
 /* ─────────────────────── rules fallback (no key) ───────────────────── */

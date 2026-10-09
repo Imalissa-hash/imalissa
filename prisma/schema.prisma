@@ -904,6 +904,10 @@ model ChatMessage {
   threadId  String
   sender    ChatSender
   body      String     @db.Text
+  // Optional photo: the customer's own upload (sender USER) or the catalog
+  // photo the AI matched to it (sender AUTO) — served from /uploads and
+  // downloadable right in the widget.
+  imageUrl  String?    @db.VarChar(500)
   readAt    DateTime?
   createdAt DateTime   @default(now())
 

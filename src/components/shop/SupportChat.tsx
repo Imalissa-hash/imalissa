@@ -2,12 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, LogIn, MessageCircle, Send, X } from "lucide-react";
+import {
+  Download,
+  ImagePlus,
+  Loader2,
+  LogIn,
+  MessageCircle,
+  Send,
+  X,
+} from "lucide-react";
 
 type ChatMessage = {
   id: string;
   sender: "USER" | "ADMIN" | "AUTO";
   body: string;
+  imageUrl?: string | null;
   createdAt: string;
 };
 
@@ -45,8 +54,11 @@ export function SupportChat() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<string | null>(null); // uploaded, ready to send
+  const [photoBusy, setPhotoBusy] = useState(false);
   const loadedRef = useRef(false);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -84,14 +96,14 @@ export function SupportChat() {
 
   const send = async () => {
     const body = draft.trim();
-    if (!body || sending) return;
+    if ((!body && !photo) || sending || photoBusy) return;
     setSending(true);
     setError(null);
     try {
       const res = await fetch("/api/chat/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, imageUrl: photo ?? undefined }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         data?: { thread: ChatThread; messages: ChatMessage[] };
@@ -112,11 +124,38 @@ export function SupportChat() {
           messages: data.data!.messages,
         }));
         setDraft("");
+        setPhoto(null);
       }
     } catch {
       setError("Network error — please try again.");
     } finally {
       setSending(false);
+    }
+  };
+
+  // Upload the picked photo first; the message then travels with its URL.
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file || photoBusy) return;
+    setPhotoBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/chat/upload", { method: "POST", body: fd });
+      const data = (await res.json().catch(() => ({}))) as {
+        data?: { url: string };
+        message?: string;
+      };
+      if (!res.ok || !data.data?.url) {
+        setError(data.message || "Could not upload the photo — please try again.");
+        return;
+      }
+      setPhoto(data.data.url);
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setPhotoBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -224,7 +263,34 @@ export function SupportChat() {
                             : "rounded-tl-sm border border-white/10 bg-white/5 text-mist-100"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      {m.imageUrl && (
+                        <a
+                          href={m.imageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mb-2 block"
+                          aria-label="View photo"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={m.imageUrl}
+                            alt="Chat photo"
+                            className="max-h-40 rounded-xl border border-white/10 object-cover"
+                          />
+                        </a>
+                      )}
+                      {m.body !== "(photo)" && (
+                        <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      )}
+                      {m.imageUrl && (
+                        <a
+                          href={m.imageUrl}
+                          download
+                          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-gold-300 underline-offset-2 hover:underline"
+                        >
+                          <Download size={12} /> Download photo
+                        </a>
+                      )}
                       <p
                         className={`mt-1 text-[10px] ${
                           m.sender === "USER"
@@ -249,34 +315,81 @@ export function SupportChat() {
               )}
 
               {/* composer */}
-              <div className="flex items-center gap-2 border-t border-white/10 bg-ink-950/60 px-3 py-3">
-                <input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void send();
-                    }
-                  }}
-                  placeholder="Type your message…"
-                  maxLength={2000}
-                  aria-label="Chat message"
-                  className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-mist-50 placeholder:text-mist-500 focus:border-gold-500/50 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => void send()}
-                  disabled={sending || !draft.trim()}
-                  aria-label="Send message"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gold-500 text-ink-950 transition hover:bg-gold-400 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {sending ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Send size={16} />
-                  )}
-                </button>
+              <div className="border-t border-white/10 bg-ink-950/60 px-3 py-3">
+                {photo && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo}
+                        alt="Attached photo"
+                        className="h-14 w-14 rounded-lg border border-white/10 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPhoto(null)}
+                        aria-label="Remove photo"
+                        className="absolute -right-1.5 -top-1.5 rounded-full bg-ink-800 p-0.5 text-mist-300 ring-1 ring-white/15 hover:text-mist-50"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <p className="text-[11px] leading-snug text-mist-400">
+                      Photo attached — the AI will identify it and share the
+                      price and details.
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    aria-label="Attach a photo"
+                    onChange={(e) => void pickPhoto(e.target.files?.[0])}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={photoBusy}
+                    aria-label="Attach a photo"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 text-mist-300 transition hover:bg-white/5 hover:text-mist-100 disabled:opacity-40"
+                  >
+                    {photoBusy ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <ImagePlus size={18} />
+                    )}
+                  </button>
+                  <input
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void send();
+                      }
+                    }}
+                    placeholder="Type your message…"
+                    maxLength={2000}
+                    aria-label="Chat message"
+                    className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-mist-50 placeholder:text-mist-500 focus:border-gold-500/50 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void send()}
+                    disabled={sending || photoBusy || (!draft.trim() && !photo)}
+                    aria-label="Send message"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gold-500 text-ink-950 transition hover:bg-gold-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {sending ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Send size={16} />
+                    )}
+                  </button>
+                </div>
               </div>
             </>
           )}

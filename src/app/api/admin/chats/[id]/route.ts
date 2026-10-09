@@ -26,7 +26,7 @@ export const GET = withApi(
         user: { select: { id: true, name: true, phone: true, email: true } },
         messages: {
           orderBy: { createdAt: "asc" },
-          select: { id: true, sender: true, body: true, readAt: true, createdAt: true },
+          select: { id: true, sender: true, body: true, imageUrl: true, readAt: true, createdAt: true },
         },
       },
     });
@@ -48,6 +48,7 @@ export const GET = withApi(
         id: m.id,
         sender: m.sender,
         body: m.body,
+        imageUrl: m.imageUrl,
         readAt: m.readAt ? true : false,
         createdAt: m.createdAt.toISOString(),
       })),

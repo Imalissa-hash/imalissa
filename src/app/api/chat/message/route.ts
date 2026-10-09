@@ -2,14 +2,19 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withApi, jsonOk, parseBody, rateLimit, clientIp } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { unauthorized } from "@/lib/errors";
+import { unauthorized, badRequest } from "@/lib/errors";
 import { getSessionUser } from "@/lib/auth";
 import { generateAutoReply } from "@/lib/auto-reply";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  body: z.string().trim().min(1, "Message cannot be empty").max(2000),
+  body: z.string().trim().max(2000).default(""),
+  // Optional photo — must be a chat upload issued by /api/chat/upload.
+  imageUrl: z
+    .string()
+    .regex(/^\/uploads\/chat\/[A-Za-z0-9._-]+\.(?:jpg|png|webp)$/)
+    .optional(),
 });
 
 /**
@@ -18,6 +23,9 @@ const schema = z.object({
  * the prompt before even trying).
  *
  * Reuses the latest OPEN thread; a closed conversation starts a new one.
+ * A message may carry a photo (uploaded via /api/chat/upload) — the auto
+ * responder then runs it through Gemini vision and answers with the matched
+ * catalog product's real price and details.
  * Returns the refreshed thread + messages so the widget can re-render
  * in one round trip.
  */
@@ -27,6 +35,9 @@ export const POST = withApi(async (req: NextRequest) => {
   if (!user) throw unauthorized("Please log in to chat with us");
 
   const body = parseBody(schema, await req.json().catch(() => ({})));
+  if (!body.body && !body.imageUrl) {
+    throw badRequest("Message cannot be empty");
+  }
 
   let thread = await prisma.chatThread.findFirst({
     where: { userId: user.id, status: "OPEN" },
@@ -38,7 +49,12 @@ export const POST = withApi(async (req: NextRequest) => {
   }
 
   await prisma.chatMessage.create({
-    data: { threadId: thread.id, sender: "USER", body: body.body },
+    data: {
+      threadId: thread.id,
+      sender: "USER",
+      body: body.body || "(photo)",
+      imageUrl: body.imageUrl ?? null,
+    },
   });
 
   // Instant auto reply — only while no human has taken over this thread
@@ -48,10 +64,19 @@ export const POST = withApi(async (req: NextRequest) => {
   });
   if (humanReplies === 0) {
     try {
-      const autoBody = await generateAutoReply({ userId: user.id, text: body.body });
-      if (autoBody) {
+      const auto = await generateAutoReply({
+        userId: user.id,
+        text: body.body,
+        imageUrl: body.imageUrl ?? null,
+      });
+      if (auto) {
         await prisma.chatMessage.create({
-          data: { threadId: thread.id, sender: "AUTO", body: autoBody },
+          data: {
+            threadId: thread.id,
+            sender: "AUTO",
+            body: auto.text,
+            imageUrl: auto.imageUrl ?? null,
+          },
         });
       }
     } catch {
@@ -73,7 +98,7 @@ export const POST = withApi(async (req: NextRequest) => {
   const messages = await prisma.chatMessage.findMany({
     where: { threadId: thread.id },
     orderBy: { createdAt: "asc" },
-    select: { id: true, sender: true, body: true, createdAt: true },
+    select: { id: true, sender: true, body: true, imageUrl: true, createdAt: true },
   });
 
   return jsonOk({ thread, messages });

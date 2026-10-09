@@ -37,7 +37,7 @@ export const GET = withApi(async () => {
   const messages = await prisma.chatMessage.findMany({
     where: { threadId: thread.id },
     orderBy: { createdAt: "asc" },
-    select: { id: true, sender: true, body: true, createdAt: true },
+    select: { id: true, sender: true, body: true, imageUrl: true, createdAt: true },
   });
 
   return jsonOk({ loggedIn: true, thread, messages, unread: 0 });

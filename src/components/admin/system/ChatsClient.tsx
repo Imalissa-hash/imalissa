@@ -29,6 +29,7 @@ type ConvMessage = {
   id: string;
   sender: "USER" | "ADMIN" | "AUTO";
   body: string;
+  imageUrl?: string | null;
   readAt: boolean;
   createdAt: string;
 };
@@ -423,7 +424,25 @@ export function ChatsClient() {
                             : "rounded-tl-sm border border-white/10 bg-white/5 text-mist-100"
                       )}
                     >
-                      <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      {m.imageUrl && (
+                        <a
+                          href={m.imageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mb-2 block"
+                          aria-label="View photo"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={m.imageUrl}
+                            alt="Chat photo"
+                            className="max-h-44 rounded-xl border border-white/10 object-cover"
+                          />
+                        </a>
+                      )}
+                      {m.body !== "(photo)" && (
+                        <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                      )}
                       <p
                         className={cn(
                           "mt-1 text-[10px]",

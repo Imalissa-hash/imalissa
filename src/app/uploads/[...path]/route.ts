@@ -30,8 +30,8 @@ type Ctx = { params: Promise<{ path: string[] }> };
  * no traversal tricks, whitelisted image extension.
  */
 
-/** Same folders /api/admin/upload is allowed to write into. */
-const DIRS = new Set(["products", "categories", "banners", "brands", "settings"]);
+/** Same folders /api/admin/upload and /api/chat/upload are allowed to write into. */
+const DIRS = new Set(["products", "categories", "banners", "brands", "settings", "chat"]);
 
 /** Extension → content type. Anything not listed here is refused. */
 const MIME: Record<string, string> = {
