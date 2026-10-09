@@ -333,6 +333,20 @@ model ProductImage {
   @@index([productId, position])
 }
 
+// Durable copy of every uploaded image (public/uploads). Render's free-tier
+// disk is ephemeral — each deploy wiped the folder and took live's product
+// and category photos with it — so the bytes live in the shared MySQL that
+// both the local site and the live site already point at. public/ stays a
+// fast static cache; when a file is missing there, /uploads/<dir>/<name>
+// falls back to this table (src/app/uploads/[...path]/route.ts).
+model StoredImage {
+  key       String   @id // "<dir>/<filename>" — identical to the public URL path
+  mime      String
+  bytes     Bytes // LONGBLOB — uploads are capped at 4MB
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model ProductVariant {
   id        String  @id @default(cuid())
   productId String

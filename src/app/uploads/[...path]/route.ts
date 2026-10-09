@@ -1,22 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fsp } from "node:fs";
 import path from "node:path";
+import { prisma } from "@/lib/db";
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
 /**
- * GET /uploads/<dir>/<file> — serves images that were written at runtime.
+ * GET/HEAD /uploads/<dir>/<file> — serves uploaded images with two fallbacks.
  *
- * Why this route exists: `next start` scans `public/` exactly ONCE, at server
- * boot (node_modules/next/dist/server/lib/router-utils/filesystem.js fills
- * `publicFolderItems` with recursiveReadDir), and in production a path that is
- * missing from that snapshot is a hard 404 — even though the file is on disk.
- * So every image uploaded after the server came up (i.e. all admin uploads
- * until the next restart) rendered as a broken/missing photo.
+ * Layer 1 — disk. `next start` scans `public/` exactly ONCE, at server boot
+ * (node_modules/next/dist/server/lib/router-utils/filesystem.js fills
+ * `publicFolderItems` with recursiveReadDir); files present at boot are
+ * served by Next's own static layer before this route runs, and this handler
+ * covers the rest: anything written at runtime shows immediately, no restart.
  *
- * Files that WERE present at boot are still served by Next's own static layer,
- * which is consulted first; this handler is the fallback for the rest, so a
- * fresh upload displays immediately — no restart needed.
+ * Layer 2 — StoredImage (shared MySQL). Render's free tier wipes `public/`
+ * on every deploy, which is how live lost its product and category photos:
+ * a browser with a warm cache kept showing them while every fresh device got
+ * 404. The upload route now writes the bytes to the DB as well, so when the
+ * disk copy is gone the image still comes from the database — same bytes on
+ * the local site and on the live site, forever.
+ *
+ * Layer 3 — PUBLIC_ASSET_BASE_URL. Local dev shares the production database,
+ * so a product can reference an image that exists only on the live host
+ * (uploaded before layer 2 existed): fetch it once from there and keep a
+ * local copy. Unset on Render, so the live site never calls itself.
+ *
+ * Everything is strictly validated: exactly <dir>/<file>, whitelisted dir,
+ * no traversal tricks, whitelisted image extension.
  */
 
 /** Same folders /api/admin/upload is allowed to write into. */
@@ -41,6 +52,8 @@ export const dynamic = "force-dynamic";
 
 const notFound = () => new NextResponse(null, { status: 404 });
 
+const etagOf = (size: number, mtimeMs: number) => `"${size.toString(16)}-${Math.floor(mtimeMs).toString(16)}"`;
+
 async function serve(req: NextRequest, ctx: Ctx, withBody: boolean) {
   const segments = (await ctx.params).path ?? [];
 
@@ -53,54 +66,62 @@ async function serve(req: NextRequest, ctx: Ctx, withBody: boolean) {
   const type = MIME[path.posix.extname(segments[1]).toLowerCase()];
   if (!type) return notFound();
 
+  const respond = (body: Buffer | null, size: number, mtimeMs: number, contentType: string) => {
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Cache-Control": CACHE_CONTROL,
+      ETag: etagOf(size, mtimeMs),
+    };
+    if (req.headers.get("if-none-match") === headers.ETag) {
+      return new NextResponse(null, { status: 304, headers });
+    }
+    if (!withBody || !body) return new NextResponse(null, { status: 200, headers });
+    // Buffer is a valid body at runtime (the original route relied on it);
+    // the TS BodyInit union rejects Buffer<ArrayBufferLike>, hence the cast.
+    return new NextResponse(body as unknown as BodyInit, { status: 200, headers });
+  };
+
+  /* ── layer 1: the disk copy (boot-present files never even reach here) ── */
   const uploadsRoot = path.resolve(path.join(process.cwd(), "public", "uploads"));
   const filePath = path.resolve(path.join(uploadsRoot, segments[0], segments[1]));
   if (!filePath.startsWith(uploadsRoot + path.sep)) return notFound();
 
   const stat = await fsp.stat(filePath).catch(() => null);
-  if (!stat?.isFile()) {
-    // Local dev shares the production database (see .env PUBLIC_ASSET_BASE_URL),
-    // so a product can reference an image that only exists on the live host.
-    // Fetch it once from there and keep a local copy; unset on Render, so the
-    // live site never calls itself.
-    const base = process.env.PUBLIC_ASSET_BASE_URL;
-    if (base) {
-      const upstream = await fetch(
-        `${base.replace(/\/$/, "")}/uploads/${segments[0]}/${segments[1]}`,
-        { signal: AbortSignal.timeout(8000) }
-      ).catch(() => null);
-      if (upstream?.ok) {
-        const buf = await upstream.arrayBuffer().catch(() => null);
-        const bytes = buf ? Buffer.from(buf) : Buffer.alloc(0);
-        if (bytes.length) {
-          // best-effort local cache so the next request is served from disk
-          await fsp.mkdir(path.dirname(filePath), { recursive: true }).catch(() => {});
-          await fsp.writeFile(filePath, bytes).catch(() => {});
-          return new NextResponse(bytes, {
-            status: 200,
-            headers: { "Content-Type": type, "Cache-Control": CACHE_CONTROL },
-          });
-        }
+  if (stat?.isFile()) {
+    const body = withBody ? await fsp.readFile(filePath).catch(() => null) : null;
+    if (withBody && !body) return notFound();
+    return respond(body, stat.size, stat.mtimeMs, type);
+  }
+
+  /* ── layer 2: durable copy in the shared DB (survives Render's deploys) ── */
+  const key = `${segments[0]}/${segments[1]}`;
+  const row = await prisma.storedImage.findUnique({ where: { key } }).catch(() => null);
+  if (row?.bytes?.length) {
+    const bytes = Buffer.from(row.bytes);
+    if (!withBody) return respond(null, bytes.length, new Date(row.updatedAt).getTime(), row.mime || type);
+    return respond(bytes, bytes.length, new Date(row.updatedAt).getTime(), row.mime || type);
+  }
+
+  /* ── layer 3: local dev pulling a live-only image, then caching it ── */
+  const base = process.env.PUBLIC_ASSET_BASE_URL;
+  if (base) {
+    const upstream = await fetch(
+      `${base.replace(/\/$/, "")}/uploads/${segments[0]}/${segments[1]}`,
+      { signal: AbortSignal.timeout(8000) }
+    ).catch(() => null);
+    if (upstream?.ok) {
+      const buf = await upstream.arrayBuffer().catch(() => null);
+      const bytes = buf ? Buffer.from(buf) : Buffer.alloc(0);
+      if (bytes.length) {
+        // best-effort local cache so the next request is served from disk
+        await fsp.mkdir(path.dirname(filePath), { recursive: true }).catch(() => {});
+        await fsp.writeFile(filePath, bytes).catch(() => {});
+        return respond(bytes, bytes.length, Date.now(), type);
       }
     }
-    return notFound();
   }
 
-  const headers: Record<string, string> = {
-    "Content-Type": type,
-    "Cache-Control": CACHE_CONTROL,
-    ETag: `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`,
-  };
-
-  if (req.headers.get("if-none-match") === headers.ETag) {
-    return new NextResponse(null, { status: 304, headers });
-  }
-  if (!withBody) return new NextResponse(null, { status: 200, headers });
-
-  const body = await fsp.readFile(filePath).catch(() => null);
-  if (!body) return notFound();
-
-  return new NextResponse(body, { status: 200, headers });
+  return notFound();
 }
 
 export const GET = (req: NextRequest, ctx: Ctx) => serve(req, ctx, true);

@@ -4,6 +4,7 @@ import path from "path";
 import { withApi, jsonOk, rateLimit, clientIp } from "@/lib/api";
 import { requireAdmin } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
+import { prisma } from "@/lib/db";
 import { badRequest } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +62,23 @@ export const POST = withApi(async (req: NextRequest) => {
   mkdirSync(dirPath, { recursive: true });
   const bytes = Buffer.from(await entry.arrayBuffer());
   writeFileSync(path.join(dirPath, name), bytes);
+
+  // Durable copy in the shared DB. public/ is only a cache on Render (the
+  // free tier's disk is wiped on every deploy), so the bytes must live
+  // there too — otherwise the image survives until the next deploy and then
+  // silently disappears for every device without a warm browser cache.
+  try {
+    await prisma.storedImage.upsert({
+      where: { key: `${dir}/${name}` },
+      update: { mime: entry.type, bytes },
+      create: { key: `${dir}/${name}`, mime: entry.type, bytes },
+    });
+  } catch (err) {
+    console.error(
+      `[upload] could not persist ${dir}/${name} to the DB — the file works now but will vanish on the next deploy:`,
+      err
+    );
+  }
 
   await audit({
     adminId: admin.id,
