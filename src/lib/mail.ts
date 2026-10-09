@@ -81,8 +81,11 @@ async function sendViaBrevo(payload: MailPayload): Promise<void> {
         sender,
         to: [{ email: payload.to }],
         subject: payload.subject,
-        text: payload.text,
-        html: payload.html,
+        // Brevo's v3/smtp API only reads textContent/htmlContent — sending
+        // text/html gets a 400 "Either of htmlContent or textContent is
+        // required" and the code step silently falls back to one-step signup.
+        textContent: payload.text,
+        htmlContent: payload.html,
         ...(payload.replyTo ? { replyTo: { email: payload.replyTo } } : {}),
       }),
       cache: "no-store",
