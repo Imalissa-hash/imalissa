@@ -12,11 +12,10 @@ import { availablePaymentMethods } from "@/server/payment";
  *   2. No key, or the call fails/times out (8 s) → the deterministic rule
  *      engine answers from the same real data. We never fake an AI.
  *
- * Every reply ends with an honest note stating it is automatic.
+ * Replies follow the customer's language (Bangla/Banglish → Bangla) and
+ * carry no trailing signature — the widget already labels every automatic
+ * bubble "Auto reply", so honesty lives in the UI, not in the text.
  */
-
-const RULES_NOTE = "_(Instant auto reply — our team will reply here personally soon.)_";
-const AI_NOTE = "_(Auto reply by Imalissa AI — our team will reply here personally soon.)_";
 
 const AI_TIMEOUT_MS = 8_000;
 
@@ -102,9 +101,10 @@ Answer the customer's message using ONLY these verified facts — never invent p
 - Return policy as configured by the store: ${f.returnPolicy}.
 - This customer's recent orders:\n${f.orders}
 
-Style: 2-4 short sentences, warm and practical, plain text. If the customer writes in Bangla script or Banglish, reply in the same style.
+Style: 2-4 short sentences, warm and practical, plain text.
+LANGUAGE: if the customer writes in Bangla script or Banglish (Romanized Bangla), reply entirely in Bangla — most Imalissa customers are Bangladeshi and may not read English. Only reply in English when the customer's message is in English. Never bury a Bangla-speaking customer in English text.
 If the facts do not cover the question (specific product stock, an order not listed, complaints, anything sensitive), say our team will reply here personally soon and help with it.
-ALWAYS end with this exact line on its own: ${AI_NOTE}`;
+Do NOT add any footer, disclaimer or signature line — just the answer.`;
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS); // total budget, both attempts
@@ -184,9 +184,9 @@ async function ruleReply({ userId, text }: AutoReplyInput): Promise<string | nul
             { day: "numeric", month: "short" }
           )})`
       );
-      return `Your latest orders:\n${lines.join("\n")}\n\nYou can also see them under My Account → Orders, or ask here for more detail.\n\n${RULES_NOTE}`;
+      return `আপনার সাম্প্রতিক অর্ডার:\n${lines.join("\n")}\n\nMy Account → Orders-এও দেখতে পারেন, অথবা এখানেই আরও জানতে চাইলে জিজ্ঞেস করুন।`;
     }
-    return `We couldn't find any orders on your account yet. If you ordered without logging in, share your order number or phone number here and our team will look it up.\n\n${RULES_NOTE}`;
+    return `দুঃখিত, আপনার অ্যাকাউন্টে এখনো কোনো অর্ডার পাওয়া যায়নি। লগইন না করে অর্ডার করে থাকলে অর্ডার নম্বর বা ফোন নম্বর এখানে দিন — আমাদের টিম খুঁজে দেখবে।`;
   }
 
   /* 2. delivery — live checkout settings */
@@ -197,9 +197,9 @@ async function ruleReply({ userId, text }: AutoReplyInput): Promise<string | nul
       other: s.checkout.deliveryChargeDefault,
       free: s.checkout.freeDeliveryMin,
     };
-    const lines = [`• Dhaka district: ৳${f.dhaka}`, `• Other districts: ৳${f.other}`];
-    if (f.free > 0) lines.push(`• Free delivery on orders of ৳${f.free}+`);
-    return `Home delivery across Bangladesh 🚚\n${lines.join("\n")}\n\nThe exact charge and estimated delivery time for your address appear at checkout.\n\n${RULES_NOTE}`;
+    const lines = [`• ঢাকা জেলা: ৳${f.dhaka}`, `• অন্যান্য জেলা: ৳${f.other}`];
+    if (f.free > 0) lines.push(`• ৳${f.free}+ অর্ডারে ফ্রি ডেলিভারি`);
+    return `সারা বাংলাদেশে হোম ডেলিভারি 🚚\n${lines.join("\n")}\n\nআপনার ঠিকানার সঠিক চার্জ ও ডেলিভারি সময় চেকআউটে দেখা যাবে।`;
   }
 
   /* 3. payment — methods actually enabled in the store */
@@ -209,11 +209,11 @@ async function ruleReply({ userId, text }: AutoReplyInput): Promise<string | nul
       const names = methods.map((m) => m.label).join(", ");
       const cod = methods.some((m) => m.method === "COD");
       const tail = cod
-        ? "Cash on Delivery lets you pay when your order arrives."
-        : "Choose what works for you at checkout.";
-      return `You can pay with: ${names}.\n\n${tail}\n\n${RULES_NOTE}`;
+        ? "Cash on Delivery মানে অর্ডার হাতে পেয়ে টাকা দিতে পারবেন।"
+        : "চেকআউটে আপনার পছন্দের পেমেন্ট অপশন বেছে নিন।";
+      return `আপনি যেসব পেমেন্ট পদ্ধতিতে পে করতে পারেন: ${names}।\n\n${tail}`;
     }
-    return `Our team will confirm the available payment options for your order here shortly.\n\n${RULES_NOTE}`;
+    return `পেমেন্ট অপশনগুলো কী, আমাদের টিম এখানেই শীঘ্রই জানিয়ে দেবে।`;
   }
 
   /* 4. returns — the store's own policy text when present */
@@ -221,14 +221,14 @@ async function ruleReply({ userId, text }: AutoReplyInput): Promise<string | nul
     const s = await getSettings();
     const item = (s.trust ?? []).find((t) => /return|refund/i.test(`${t.title} ${t.text}`));
     const lead = item
-      ? `${item.title} — ${item.text}.`
-      : "Our team will confirm the return/refund policy for your order.";
-    return `${lead}\n\nShare your order number here and we'll start the process for you.\n\n${RULES_NOTE}`;
+      ? `${item.title} — ${item.text}`
+      : "রিটার্ন/ফেরত নীতি সম্পর্কে আমাদের টিম আপনার অর্ডার অনুযায়ী নিশ্চিত করবে।";
+    return `${lead}\n\nপ্রক্রিয়া শুরু করতে অর্ডার নম্বর এখানে দিন।`;
   }
 
   /* 5. stock / size — needs the specific product */
   if (has("stock", "available", "size", "স্টক")) {
-    return `Share the product link or name here and we'll confirm stock and size availability right away.\n\n${RULES_NOTE}`;
+    return `প্রোডাক্টের লিংক বা নাম এখানে দিন — স্টক ও সাইজের খবর সঙ্গে সঙ্গে জানিয়ে দেব।`;
   }
 
   /* 6. greeting / thanks */
@@ -237,9 +237,9 @@ async function ruleReply({ userId, text }: AutoReplyInput): Promise<string | nul
     q.includes("সালাম") ||
     q.includes("ধন্যবাদ")
   ) {
-    return `Hello! 👋 Welcome to Imalissa. Ask us anything about products, delivery, payment or your order — our team replies here.\n\n${RULES_NOTE}`;
+    return `হ্যালো! 👋 Imalissa-তে স্বাগতম। প্রোডাক্ট, ডেলিভারি, পেমেন্ট বা অর্ডার সম্পর্কে যা খুশি জিজ্ঞেস করুন — আমাদের টিম এখানেই উত্তর দেবে।`;
   }
 
   /* 7. fallback */
-  return `Thanks for messaging Imalissa! 🌟 This is an instant auto reply — a team member will read your message and reply here shortly.\n\nYou can ask about: order status · delivery charge · payment methods · returns.\n\n${RULES_NOTE}`;
+  return `Imalissa-কে মেসেজ করার জন্য ধন্যবাদ! 🌟 এটি সঙ্গে সঙ্গের অটো রিপ্লাই — একজন টিম সদস্য আপনার মেসেজটি পড়ে এখানেই উত্তর দেবেন।\n\nযা যা জিজ্ঞেস করতে পারেন: অর্ডার স্ট্যাটাস · ডেলিভারি চার্জ · পেমেন্ট পদ্ধতি · রিটার্ন।`;
 }
