@@ -5,6 +5,7 @@ import { withApi, jsonOk, rateLimit, clientIp } from "@/lib/api";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { badRequest, unauthorized } from "@/lib/errors";
+import { bytesMatchExtension } from "@/lib/image-bytes";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,13 @@ export const POST = withApi(async (req: NextRequest) => {
   const dirPath = path.join(process.cwd(), "public", "uploads", "chat");
   mkdirSync(dirPath, { recursive: true });
   const bytes = Buffer.from(await entry.arrayBuffer());
+
+  // Same magic-byte check as the admin upload: the declared mime decides the
+  // extension, the bytes must prove they belong to it.
+  if (!bytesMatchExtension(bytes, ext)) {
+    throw badRequest("This file is not a valid image — its contents do not match its type");
+  }
+
   writeFileSync(path.join(dirPath, name), bytes);
 
   // Durable copy in the shared DB (Render's disk is ephemeral).

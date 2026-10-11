@@ -31,12 +31,13 @@ const nextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
-      {
-        source: "/uploads/:path*",
-        headers: [
-          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
-        ],
-      },
+      // NOTE: /uploads used to carry an immutable one-year Cache-Control here.
+      // It was removed on purpose: config headers OVERRIDE the handler's own
+      // header, so a missing photo (which the handler answers with a
+      // short-lived placeholder) was pinned in every browser for a year —
+      // recovering the real bytes later would have shown nothing. The handler
+      // at src/app/uploads/[...path]/route.ts now sets the cache header
+      // per-response: a year for a real image, minutes for a placeholder.
     ];
   },
 };

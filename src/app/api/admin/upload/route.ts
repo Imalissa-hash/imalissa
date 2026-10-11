@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { badRequest } from "@/lib/errors";
+import { bytesMatchExtension } from "@/lib/image-bytes";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,15 @@ export const POST = withApi(async (req: NextRequest) => {
   const dirPath = path.join(process.cwd(), "public", "uploads", dir);
   mkdirSync(dirPath, { recursive: true });
   const bytes = Buffer.from(await entry.arrayBuffer());
+
+  // The browser-declared mime only names the extension — it does not prove
+  // the file is really an image. Check the magic bytes too, so a renamed
+  // script/page can never be written into public/uploads (and from there
+  // served back to visitors as an image).
+  if (!bytesMatchExtension(bytes, ext)) {
+    throw badRequest("This file is not a valid image — its contents do not match its type");
+  }
+
   writeFileSync(path.join(dirPath, name), bytes);
 
   // Durable copy in the shared DB. public/ is only a cache on Render (the
