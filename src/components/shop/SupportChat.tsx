@@ -56,37 +56,87 @@ export function SupportChat() {
   const [error, setError] = useState<string | null>(null);
   const [photo, setPhoto] = useState<string | null>(null); // uploaded, ready to send
   const [photoBusy, setPhotoBusy] = useState(false);
-  const loadedRef = useRef(false);
+  // One fetch has completed: the panel can render a real answer (conversation
+  // or login gate) instead of a spinner. Before that, only the spinner shows —
+  // so a logged-in visitor is never mistaken for a guest mid-load.
+  const [ready, setReady] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const inflightRef = useRef(false);
+  const lastSyncRef = useRef(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/chat", { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const data = (await res.json()) as { data?: ChatState };
-      if (data.data) {
-        setState(data.data);
-        setError(null);
-      }
+      if (!data.data) return false;
+      setState(data.data);
+      setError(null);
+      setLoadFailed(false);
+      lastSyncRef.current = Date.now();
+      return true;
     } catch {
-      /* transient — the next poll retries */
+      /* transient — the poll retries; keep whatever is already on screen */
+      return false;
     }
   }, []);
 
-  // First open → fetch state; while open → poll for admin replies (12 s).
+  /** One guarded fetch that also owns the spinner. Safe to call twice. */
+  const hydrate = useCallback(async () => {
+    if (inflightRef.current) return;
+    inflightRef.current = true;
+    setLoading(true);
+    try {
+      const ok = await refresh();
+      setReady(true);
+      setLoadFailed(!ok);
+    } finally {
+      inflightRef.current = false;
+      setLoading(false);
+    }
+  }, [refresh]);
+
+  /**
+   * Prefetch the state the moment the widget is on the page, deferred until
+   * the browser is idle so it never competes with the page's own resources.
+   * By the time a visitor clicks the bubble the conversation (or the login
+   * gate) is already loaded, so the panel opens with no spinner at all.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let usedIdle = false;
+    let handle = 0;
+    const run = () => {
+      if (!cancelled) void hydrate();
+    };
+    // Safari < 16.4 has no requestIdleCallback — fall back to a timer.
+    if (typeof window.requestIdleCallback === "function") {
+      usedIdle = true;
+      handle = window.requestIdleCallback(run, { timeout: 2500 });
+    } else {
+      handle = window.setTimeout(run, 1500);
+    }
+    return () => {
+      cancelled = true;
+      if (usedIdle) window.cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
+  }, [hydrate]);
+
+  // Open → show what we already have, silently refreshing it if it is stale.
+  // Still not loaded (opened within the first second or two) → fetch now.
+  // While open → poll for admin replies every 12 s.
   useEffect(() => {
     if (!open) return;
-    if (!loadedRef.current) {
-      loadedRef.current = true;
-      setLoading(true);
-      refresh().finally(() => setLoading(false));
-    }
+    if (!ready) void hydrate();
+    else if (Date.now() - lastSyncRef.current > 15_000) void refresh();
     const t = setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") void refresh();
     }, 12_000);
     return () => clearInterval(t);
-  }, [open, refresh]);
+  }, [open, ready, hydrate, refresh]);
 
   // Keep the conversation scrolled to the newest message.
   useEffect(() => {
@@ -197,7 +247,35 @@ export function SupportChat() {
             </button>
           </div>
 
-          {loading ? (
+          {!ready ? (
+            <div className="flex flex-1 items-center justify-center">
+              <Loader2 className="animate-spin text-gold-400" size={24} />
+            </div>
+          ) : loadFailed ? (
+            /* ---------- could not reach the chat service ---------- */
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/5 text-mist-300">
+                <MessageCircle size={22} />
+              </div>
+              <div className="space-y-1.5">
+                <p className="font-display text-base font-semibold text-mist-50">
+                  Could not load the chat
+                </p>
+                <p className="text-sm leading-relaxed text-mist-400">
+                  We could not reach the chat service just now. Please try
+                  again — your conversation is safe.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void hydrate()}
+                disabled={loading}
+                className="rounded-xl bg-gold-500 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-gold-400 disabled:opacity-50"
+              >
+                {loading ? "Trying…" : "Try again"}
+              </button>
+            </div>
+          ) : loading ? (
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="animate-spin text-gold-400" size={24} />
             </div>
