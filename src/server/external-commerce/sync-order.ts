@@ -211,12 +211,16 @@ async function finalizeFailure(
   responseSnapshot: unknown | null,
   durationMs: number
 ): Promise<void> {
+  // Truncate error message for display, but log full message for diagnostics
+  const truncatedError = message.slice(0, 2000);
+  console.error(`[sync-order] Order ${orderId} sync failed (${status}):`, message);
+
   await prisma.$transaction([
     prisma.order.update({
       where: { id: orderId },
       data: {
         externalSyncStatus: status,
-        lastSyncError: message.slice(0, 1000),
+        lastSyncError: truncatedError,
         syncStartedAt: null,
       },
     }),
@@ -229,7 +233,7 @@ async function finalizeFailure(
         attempt,
         request: sanitize(requestSnapshot) as object,
         ...(responseSnapshot ? { response: sanitize(responseSnapshot) as object } : {}),
-        error: message.slice(0, 1000),
+        error: truncatedError,
         durationMs,
       },
     }),
@@ -276,10 +280,12 @@ export async function syncOrder(orderId: string, trigger: SyncTrigger = "auto"):
       "Automatic order forwarding to the external API is turned off — the order stays in Imalissa and is handled by our team. To send one order anyway, use Push to API on its order page. Product import is unaffected.";
     // Leave no row claiming a push is still queued for delivery.
     if (current.externalSyncStatus === "PENDING") {
+      const truncatedMessage = message.slice(0, 2000);
+      console.warn(`[sync-order] Order ${orderId} auto-sync disabled:`, message);
       await prisma.order
         .updateMany({
           where: { id: orderId, externalSyncStatus: "PENDING" },
-          data: { externalSyncStatus: "NOT_CONFIGURED", lastSyncError: message },
+          data: { externalSyncStatus: "NOT_CONFIGURED", lastSyncError: truncatedMessage },
         })
         .catch(() => undefined);
     }
@@ -424,10 +430,12 @@ export async function verifyAmbiguousOrder(
   }
 
   // Confirmed NOT created externally → safe to retry.
+  const message = "Verified not created externally — safe to retry";
+  console.log(`[sync-order] Order ${orderId} verified: not created externally`);
   await prisma.$transaction([
     prisma.order.update({
       where: { id: orderId },
-      data: { externalSyncStatus: "FAILED", lastSyncError: "Verified not created externally — safe to retry" },
+      data: { externalSyncStatus: "FAILED", lastSyncError: message },
     }),
     prisma.apiSyncLog.create({
       data: {
@@ -490,10 +498,12 @@ export async function manualReleaseRetry(orderId: string, adminId: string): Prom
     throw new Error("Order is not in SYNC_TIMEOUT state");
   }
 
+  const message = "Manually verified as not created — retry unlocked";
+  console.log(`[sync-order] Order ${orderId} manually released for retry by admin ${adminId}`);
   await prisma.$transaction([
     prisma.order.update({
       where: { id: orderId },
-      data: { externalSyncStatus: "FAILED", lastSyncError: "Manually verified as not created — retry unlocked" },
+      data: { externalSyncStatus: "FAILED", lastSyncError: message },
     }),
     prisma.apiSyncLog.create({
       data: {
