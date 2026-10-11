@@ -203,10 +203,11 @@ export class HttpProvider implements ExternalCommerceProvider {
           checkedAt: new Date().toISOString(),
         };
       }
+      // Increase timeout for health check to 15s to handle slow external APIs
       const res = await this.request(
         ENDPOINTS.health.path,
         { method: ENDPOINTS.health.method, headers: this.buildHeaders() },
-        { timeoutMs: 8000 }
+        { timeoutMs: 15_000 }
       );
       let message = res.ok ? "Connected" : `Catalog endpoint returned HTTP ${res.status}`;
       if (res.ok) {
@@ -225,10 +226,13 @@ export class HttpProvider implements ExternalCommerceProvider {
         checkedAt: new Date().toISOString(),
       };
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Connection check failed";
+      // Log the error with more context for debugging
+      console.error(`[External API] Health check failed for ${this.config.baseUrl}:`, message);
       return {
         ok: false,
         mode: "live",
-        message: err instanceof Error ? err.message : "Connection check failed",
+        message,
         latencyMs: Date.now() - started,
         checkedAt: new Date().toISOString(),
       };

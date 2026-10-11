@@ -31,7 +31,8 @@ export function getConfig(): ExternalCommerceConfig {
     baseUrl: (process.env.EXTERNAL_COMMERCE_BASE_URL || "").trim().replace(/\/+$/, ""),
     apiKey: process.env.EXTERNAL_COMMERCE_API_KEY || "",
     apiSecret: process.env.EXTERNAL_COMMERCE_API_SECRET || "",
-    timeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 60_000) : 15_000,
+    // Cap timeout at 30s for production to prevent hanging requests
+    timeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 30_000) : 15_000,
   };
 }
 

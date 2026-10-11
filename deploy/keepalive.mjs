@@ -21,6 +21,13 @@ try {
   console.log(`${res.status} ${target} in ${Date.now() - t0} ms`);
   process.exit(res.ok ? 0 : 1);
 } catch (err) {
-  console.error(`keep-alive failed: ${err?.message || err}`);
+  const message = err?.message || err;
+  console.error(`keep-alive failed: ${message}`);
+  // Distinguish timeout vs network errors
+  if (message?.includes('timeout') || message?.includes('ETIMEDOUT')) {
+    console.error('Error type: TIMEOUT - external service unreachable');
+  } else if (message?.includes('fetch failed') || message?.includes('ECONNREFUSED')) {
+    console.error('Error type: NETWORK - connection refused');
+  }
   process.exit(1);
 }

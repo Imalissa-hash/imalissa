@@ -618,25 +618,43 @@ function ExternalApiConnection() {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/admin/external-api")
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+
+    fetch("/api/admin/external-api", { signal: controller.signal })
       .then((r) => r.json())
       .then((j) => {
         if (alive && j?.ok) apply(j.data as ApiConnection);
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        // Timeout or network error — don't block the admin panel from loading
+        // The "Test connection" button can still be used to verify the API
+        if (alive && err?.name !== "AbortError") {
+          console.warn("[Settings] Failed to load external API status:", err);
+        }
+      })
+      .finally(() => clearTimeout(timer));
+
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, []);
 
   const post = async (payload: Record<string, unknown>, success: string) => {
     setState({ state: "saving" });
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15_000);
+
       const res = await fetch("/api/admin/external-api", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
+
       const json = await res.json().catch(() => ({ ok: false, message: "Unexpected server response" }));
       if (!json.ok) {
         setState({ state: "error", message: json.message ?? "Connection not saved" });
@@ -645,8 +663,12 @@ function ExternalApiConnection() {
       apply(json.data as ApiConnection);
       setState({ state: "saved", message: success });
       window.setTimeout(() => setState((s) => (s.state === "saved" ? { state: "idle" } : s)), 2500);
-    } catch {
-      setState({ state: "error", message: "Network error — connection not saved" });
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        setState({ state: "error", message: "Request timed out — connection not saved" });
+      } else {
+        setState({ state: "error", message: "Network error — connection not saved" });
+      }
     }
   };
 
@@ -665,11 +687,17 @@ function ExternalApiConnection() {
     setTesting(true);
     setTest(null);
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20_000);
+
       const res = await fetch("/api/admin/external-api", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "test" }),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
+
       const json = (await res.json().catch(() => ({ ok: false }))) as {
         ok?: boolean;
         message?: string;
@@ -682,8 +710,12 @@ function ExternalApiConnection() {
           ok: h.ok,
           text: `${h.ok ? "✓ " : "✕ "}${h.message}${h.latencyMs ? ` · ${h.latencyMs}ms` : ""}`,
         });
-    } catch {
-      setTest({ ok: false, text: "Network error — test not completed" });
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        setTest({ ok: false, text: "Connection test timed out (20s)" });
+      } else {
+        setTest({ ok: false, text: "Network error — test not completed" });
+      }
     } finally {
       setTesting(false);
     }
