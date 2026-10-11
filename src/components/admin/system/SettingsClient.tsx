@@ -629,7 +629,7 @@ function ExternalApiConnection() {
       .catch((err) => {
         // Timeout or network error — don't block the admin panel from loading
         // The "Test connection" button can still be used to verify the API
-        if (alive && err?.name !== "AbortError") {
+        if (alive && !(err instanceof Error && err.name === "AbortError")) {
           console.warn("[Settings] Failed to load external API status:", err);
         }
       })
@@ -664,7 +664,7 @@ function ExternalApiConnection() {
       setState({ state: "saved", message: success });
       window.setTimeout(() => setState((s) => (s.state === "saved" ? { state: "idle" } : s)), 2500);
     } catch (err) {
-      if (err?.name === "AbortError") {
+      if (err instanceof Error && err.name === "AbortError") {
         setState({ state: "error", message: "Request timed out — connection not saved" });
       } else {
         setState({ state: "error", message: "Network error — connection not saved" });
@@ -711,7 +711,7 @@ function ExternalApiConnection() {
           text: `${h.ok ? "✓ " : "✕ "}${h.message}${h.latencyMs ? ` · ${h.latencyMs}ms` : ""}`,
         });
     } catch (err) {
-      if (err?.name === "AbortError") {
+      if (err instanceof Error && err.name === "AbortError") {
         setTest({ ok: false, text: "Connection test timed out (20s)" });
       } else {
         setTest({ ok: false, text: "Network error — test not completed" });
