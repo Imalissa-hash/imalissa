@@ -99,29 +99,20 @@ export function SupportChat() {
   }, [refresh]);
 
   /**
-   * Prefetch the state the moment the widget is on the page, deferred until
-   * the browser is idle so it never competes with the page's own resources.
+   * Load chat state immediately on mount (no idle delay).
    * By the time a visitor clicks the bubble the conversation (or the login
    * gate) is already loaded, so the panel opens with no spinner at all.
    */
   useEffect(() => {
     let cancelled = false;
-    let usedIdle = false;
-    let handle = 0;
     const run = () => {
       if (!cancelled) void hydrate();
     };
-    // Safari < 16.4 has no requestIdleCallback — fall back to a timer.
-    if (typeof window.requestIdleCallback === "function") {
-      usedIdle = true;
-      handle = window.requestIdleCallback(run, { timeout: 2500 });
-    } else {
-      handle = window.setTimeout(run, 1500);
-    }
+    // Load immediately after a short delay to let the page render first
+    const handle = window.setTimeout(run, 500);
     return () => {
       cancelled = true;
-      if (usedIdle) window.cancelIdleCallback(handle);
-      else window.clearTimeout(handle);
+      window.clearTimeout(handle);
     };
   }, [hydrate]);
 

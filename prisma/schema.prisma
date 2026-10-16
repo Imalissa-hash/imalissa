@@ -251,7 +251,7 @@ model Product {
   // text columns are sized to the limits the API form already enforces
   // (textOrNull in the products routes) — with the Prisma/MySQL default of
   // VARCHAR(191) every longer value died with P2000 "value too long".
-  shortDescription String?     @db.VarChar(500)
+  shortDescription String?     @db.VarChar(1000)
   description      String?     @db.Text
   brandId          String?
   categoryId       String
@@ -920,4 +920,40 @@ model ChatMessage {
 model OrderSequence {
   year Int @id
   seq  Int @default(0)
+}
+
+// ------------------------------------------------------------
+// Social inbox — Facebook Page messages pushed to us by Meta's
+// webhook. Inbound only: the admin reads them here, replies are
+// still made on Facebook itself.
+//
+// The sender is a Facebook user, NOT an account on this site, so
+// there is deliberately no relation to User — a PSID (page-scoped
+// id) is only meaningful to one Page and cannot be joined to our
+// users even if one later signs up.
+// ------------------------------------------------------------
+
+enum SocialChannel {
+  FACEBOOK
+  INSTAGRAM
+  WHATSAPP
+}
+
+model SocialMessage {
+  id        String        @id @default(cuid())
+  channel   SocialChannel @default(FACEBOOK)
+  /** Meta's page-scoped id for the sender (not our User id). */
+  senderId  String
+  /** Resolved via the Graph API; null when that lookup failed. */
+  senderName String?
+  /** Meta's message id — the dedupe key. Webhooks redeliver. */
+  messageId String        @unique
+  body      String        @db.Text
+  /** Sender's profile picture from the Graph API, when we got one. */
+  senderAvatar String?    @db.VarChar(500)
+  isRead    Boolean       @default(false)
+  createdAt DateTime      @default(now())
+
+  @@index([channel, isRead, createdAt])
+  @@index([senderId])
 }
