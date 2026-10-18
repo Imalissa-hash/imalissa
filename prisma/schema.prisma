@@ -868,6 +868,59 @@ model ContactMessage {
 }
 
 // ------------------------------------------------------------
+// Social inbox — messages arriving from a business's own social
+// accounts (Facebook Page today; Instagram / WhatsApp when those
+// products are added to the Meta app).
+//
+// Only INBOUND messages are stored here. Replying needs a Page Access
+// Token, which is a secret and lives in .env — never in this table and
+// never in an API response.
+// ------------------------------------------------------------
+
+enum SocialChannel {
+  FACEBOOK
+  INSTAGRAM
+  WHATSAPP
+}
+
+model SocialMessage {
+  id String @id @default(cuid())
+
+  channel SocialChannel @default(FACEBOOK)
+
+  /// Meta's page-scoped sender id (PSID). Opaque to us; stable per
+  /// (page, person), and what a reply is addressed to.
+  senderId String
+
+  /// Best-effort human label from Meta's profile lookup. Null when Meta
+  /// did not supply one — the UI falls back to "Facebook sender".
+  senderName String?
+
+  /// Meta's message id. Unique so a redelivered webhook is a no-op
+  /// rather than a duplicate row in the inbox.
+  externalId String @unique
+
+  /// The customer's words. Messenger allows up to 2000 characters, so this
+  /// is TEXT — the MySQL default varchar(191) would silently truncate a
+  /// longer question and the admin would answer the wrong thing.
+  body String @db.Text
+
+  isRead Boolean @default(false)
+
+  /// Set when a reply was actually accepted by the Graph API. Null means
+  /// "not replied through Facebook" — which is NOT the same as "unanswered",
+  /// because staff may have answered out of band. The UI says so plainly.
+  repliedAt DateTime?
+
+  receivedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([channel, receivedAt])
+  @@index([isRead, receivedAt])
+  @@index([senderId])
+}
+
+// ------------------------------------------------------------
 // Customer support chat — floating widget on the homepage.
 // Customers must be logged in to talk; every thread and message is
 // visible (and answerable) in Admin → Live Chat.
@@ -920,40 +973,4 @@ model ChatMessage {
 model OrderSequence {
   year Int @id
   seq  Int @default(0)
-}
-
-// ------------------------------------------------------------
-// Social inbox — Facebook Page messages pushed to us by Meta's
-// webhook. Inbound only: the admin reads them here, replies are
-// still made on Facebook itself.
-//
-// The sender is a Facebook user, NOT an account on this site, so
-// there is deliberately no relation to User — a PSID (page-scoped
-// id) is only meaningful to one Page and cannot be joined to our
-// users even if one later signs up.
-// ------------------------------------------------------------
-
-enum SocialChannel {
-  FACEBOOK
-  INSTAGRAM
-  WHATSAPP
-}
-
-model SocialMessage {
-  id        String        @id @default(cuid())
-  channel   SocialChannel @default(FACEBOOK)
-  /** Meta's page-scoped id for the sender (not our User id). */
-  senderId  String
-  /** Resolved via the Graph API; null when that lookup failed. */
-  senderName String?
-  /** Meta's message id — the dedupe key. Webhooks redeliver. */
-  messageId String        @unique
-  body      String        @db.Text
-  /** Sender's profile picture from the Graph API, when we got one. */
-  senderAvatar String?    @db.VarChar(500)
-  isRead    Boolean       @default(false)
-  createdAt DateTime      @default(now())
-
-  @@index([channel, isRead, createdAt])
-  @@index([senderId])
 }

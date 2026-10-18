@@ -163,6 +163,20 @@ export async function destroySession(): Promise<void> {
   await clearSessionCookie();
 }
 
+/**
+ * Evict specific sessions from the in-memory cache, keyed by token hash.
+ *
+ * Admin → Logins ends ANOTHER user's sessions. Deleting the rows alone would
+ * leave this instance honouring their cookie for up to SESSION_CACHE_MS (30 s),
+ * because getSessionUser answers from the cache before it ever hits the
+ * database. The cache is keyed by sha256(token) — which is exactly what
+ * Session.tokenHash stores — so the hashes we are about to delete are
+ * precisely the keys to drop, and the logout lands immediately.
+ */
+export function evictSessionCache(tokenHashes: string[]): void {
+  for (const hash of tokenHashes) sessionCache.delete(hash);
+}
+
 /** Constant-time string compare (for tokens such as tracking lookups). */
 export function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);

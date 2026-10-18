@@ -77,6 +77,21 @@ export interface SettingsShape {
     /** Chat / group / channel id alerts are delivered to. Empty = disabled. */
     chatId: string;
   };
+  /**
+   * Facebook Page inbox (Admin → Social).
+   *
+   * Deliberately holds NOTHING secret. The verify token below is a value we
+   * invent and hand to Meta so it can confirm we own the webhook — leaking it
+   * lets someone subscribe a page we do not own, which is why it is rotatable
+   * from this screen. The App Secret (webhook signature check) and the Page
+   * Access Token (sending replies) live in .env and are read server-side only.
+   */
+  social: {
+    /** The webhook verify token Meta must echo back. Empty = not configured. */
+    verifyToken: string;
+    /** Numeric Facebook Page id. Display + which page we claim; not secret. */
+    pageId: string;
+  };
 }
 
 export const DEFAULT_SETTINGS: SettingsShape = {
@@ -148,6 +163,10 @@ export const DEFAULT_SETTINGS: SettingsShape = {
   telegram: {
     title: "Imalissa Orders",
     chatId: "",
+  },
+  social: {
+    verifyToken: "",
+    pageId: "",
   },
 };
 

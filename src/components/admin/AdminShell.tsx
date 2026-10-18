@@ -14,6 +14,7 @@ import {
   Gift,
   Inbox,
   LayoutGrid,
+  LogIn,
   LogOut,
   Menu,
   MessageCircle,
@@ -21,6 +22,7 @@ import {
   Boxes,
   ScrollText,
   Settings,
+  Share2,
   ShieldCheck,
   ShoppingBag,
   SlidersHorizontal,
@@ -78,9 +80,11 @@ const NAV: NavSection[] = [
     title: "Customers",
     items: [
       { href: "/admin/customers", label: "Customers", icon: Users, perm: "customers.view" },
+      { href: "/admin/logins", label: "Logins", icon: LogIn, perm: "customers.view" },
       { href: "/admin/reviews", label: "Reviews", icon: Star, perm: "reviews.view" },
       { href: "/admin/messages", label: "Messages", icon: Inbox, perm: "messages.view" },
       { href: "/admin/chats", label: "Live Chat", icon: MessageCircle, perm: "messages.view" },
+      { href: "/admin/social", label: "Social Inbox", icon: Share2, perm: "customers.view" },
     ],
   },
   {
