@@ -95,3 +95,15 @@ services:
         sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      # Facebook Page inbox (Admin → Social Inbox).
+      # META_APP_SECRET is required before the webhook accepts ANY message:
+      # it is the key Meta signs each POST with, and without it the server
+      # cannot tell Meta from an impostor, so it refuses (503) rather than
+      # let a stranger write rows into the admin inbox.
+      # META_PAGE_TOKEN lets the admin reply through the Graph API; inbound
+      # messages work without it, but the panel stays read-only.
+      # Both are pasted in the dashboard — never committed.
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_PAGE_TOKEN
+        sync: false
