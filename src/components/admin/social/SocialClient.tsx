@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Panel,
   Table,
@@ -283,24 +284,30 @@ export function SocialClient({
               {items.map((m) => (
                 <tr key={m.id} className="transition hover:bg-white/[0.03]">
                   <Td>
-                    <div className="min-w-0">
+                    <Link
+                      href={`/admin/social/${m.id}`}
+                      title="Open this conversation"
+                      className="group block min-w-0"
+                    >
                       <span
                         className={cn(
-                          "block truncate",
+                          "block truncate transition-colors group-hover:text-gold-300",
                           m.isRead ? "font-semibold text-mist-300" : "font-bold text-mist-50"
                         )}
                       >
                         {m.senderName ?? "Facebook sender"}
                       </span>
-                      <span className="block truncate text-[0.72rem] text-mist-600">
-                        {m.senderId}
+                      <span className="block truncate text-[0.72rem] text-mist-600 transition-colors group-hover:text-gold-400/80">
+                        {m.senderId} →
                       </span>
-                    </div>
+                    </Link>
                   </Td>
                   <Td>
-                    <span
+                    <Link
+                      href={`/admin/social/${m.id}`}
+                      title="Open this conversation"
                       className={cn(
-                        "block",
+                        "block transition-colors hover:text-gold-300 hover:underline",
                         m.isRead ? "text-mist-400" : "font-semibold text-gold-200"
                       )}
                     >
@@ -308,7 +315,7 @@ export function SocialClient({
                         <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-gold-400 align-middle" />
                       )}
                       {m.body}
-                    </span>
+                    </Link>
                   </Td>
                   <Td className="whitespace-nowrap">
                     <span className="block text-mist-300">
