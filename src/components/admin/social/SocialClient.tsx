@@ -1,44 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  Panel,
-  Table,
-  Th,
-  Td,
-  Empty,
-  SearchInput,
-  Tabs,
-  Btn,
-  BusyBtn,
-  TextInput,
-  TextArea,
-  Modal,
-} from "@/components/admin/ui";
+import { Panel, Empty, SearchInput, Tabs, BusyBtn, TextArea } from "@/components/admin/ui";
 import { Pagination } from "@/components/ui/Pagination";
 import { cn, formatDate, timeAgo } from "@/lib/utils";
+import { QUICK_REPLIES } from "./quick-replies";
+import type { ConversationRow, ThreadMessage, InboxCounts } from "./types";
 
-/** One Facebook message row — server-serialized. */
-export interface SocialRow {
-  id: string;
-  channel: string;
-  senderId: string;
-  senderName: string | null;
-  body: string;
-  isRead: boolean;
-  /** Set only when a reply was accepted by the Graph API. */
-  repliedAt: string | null;
-  receivedAt: string;
-}
-
-export interface SocialCounts {
-  unread: number;
-  replied: number;
-  total: number;
-}
-
+/**
+ * The Social Inbox as a three-pane messenger: conversations on the left, the
+ * selected thread in the middle, who-you-are-talking-to plus canned replies
+ * on the right.
+ *
+ * Every conversation is a deep link (/admin/social/[id]) rather than local
+ * state, so a thread can be bookmarked, shared with a colleague, or reloaded
+ * without losing position — and the same URL renders on both routes, which is
+ * why this one component serves /admin/social and /admin/social/[id] alike.
+ *
+ * Both directions render: INBOUND is the customer on the left, OUTBOUND is
+ * the Page on the right. Nothing here invents a message that was not stored —
+ * if a reply never made it into the database, it does not appear, because a
+ * thread that silently omits the shop's own answer is worse than one that
+ * admits it does not have it.
+ */
 const BOXES = [
   { key: "unread", label: "Unread" },
   { key: "replied", label: "Replied" },
@@ -47,24 +33,27 @@ const BOXES = [
 
 export function SocialClient({
   items,
+  counts,
   total,
   totalPages,
   page,
   searchParams,
-  counts,
   connected,
   canSend,
   missing,
   verifyToken,
   pageId,
   webhookPath,
+  selectedId,
+  thread,
+  sender,
 }: {
-  items: SocialRow[];
+  items: ConversationRow[];
+  counts: InboxCounts;
   total: number;
   totalPages: number;
   page: number;
   searchParams: Record<string, string | string[] | undefined>;
-  counts: SocialCounts;
   connected: boolean;
   canSend: boolean;
   /** .env names still absent — drives the exact "add this line" copy. */
@@ -72,6 +61,9 @@ export function SocialClient({
   verifyToken: string;
   pageId: string;
   webhookPath: string;
+  selectedId: string | null;
+  thread: ThreadMessage[] | null;
+  sender: { name: string; id: string; channel: string } | null;
 }) {
   const router = useRouter();
   const get = (k: string) => {
@@ -82,14 +74,14 @@ export function SocialClient({
   const box = get("box");
   const urlQ = get("q");
   const [q, setQ] = useState(urlQ);
-
-  // Reply composer. `replying` holds the row being answered; the draft is
-  // kept separate so closing the modal never loses text mid-thought.
-  const [replying, setReplying] = useState<SocialRow | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [replyError, setReplyError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Rebuild the URL, keeping whichever pane is open so filtering never throws
+   * away the conversation being read.
+   */
   const push = (patch: Record<string, string | null>) => {
     const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(searchParams)) {
@@ -102,7 +94,8 @@ export function SocialClient({
       else sp.set(k, v);
     }
     const qs = sp.toString();
-    router.push(`/admin/social${qs ? `?${qs}` : ""}`);
+    const base = selectedId ? `/admin/social/${selectedId}` : "/admin/social";
+    router.push(`${base}${qs ? `?${qs}` : ""}`);
   };
 
   useEffect(() => {
@@ -114,424 +107,380 @@ export function SocialClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  const countFor = (key: string) =>
-    key === "unread" ? counts.unread : key === "replied" ? counts.replied : counts.total;
+  const unread = thread?.some((m) => !m.isRead) ?? false;
+
+  /**
+   * Opening a conversation reads it.
+   *
+   * Guarded by a ref because React 19 strict mode runs effects twice in
+   * development, and each call writes its own audit row — idempotent for
+   * state, noisy for the log. A refusal leaves the badge showing: clearing it
+   * silently would claim a thread needs no attention when we never proved it.
+   */
+  const markedRef = useRef(false);
+  useEffect(() => {
+    if (!selectedId || !unread || markedRef.current) return;
+    markedRef.current = true;
+    void fetch(`/api/admin/social/${selectedId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversation: true }),
+    })
+      .then((res) => {
+        if (res.ok) router.refresh();
+        else markedRef.current = false;
+      })
+      .catch(() => {
+        markedRef.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, unread]);
 
   /**
    * Send a real reply through Messenger. The row is only marked "Replied"
-   * after Facebook ACCEPTS the message — if Graph refuses, the error stays on
+   * after Facebook ACCEPTS the message — if Graph refuses the error stays on
    * screen and the customer is visibly still waiting, which is the honest
    * state. Optimistically ticking the badge would hide a message nobody
    * answered.
    */
-  const sendReply = async () => {
-    if (!replying || !draft.trim() || sending) return;
+  const send = async () => {
+    if (!selectedId || !draft.trim() || sending) return;
     setSending(true);
-    setReplyError(null);
+    setError(null);
     try {
-      const res = await fetch(`/api/admin/social/${replying.id}/reply`, {
+      const res = await fetch(`/api/admin/social/${selectedId}/reply`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ body: draft.trim() }),
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        message?: string;
-        ok?: boolean;
-      };
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) {
-        setReplyError(data.message || "Facebook did not accept the reply.");
+        setError(data.message || "Facebook did not accept the reply.");
         return;
       }
-      setReplying(null);
       setDraft("");
       router.refresh();
     } catch {
-      setReplyError("Network error — please try again.");
+      setError("Network error — please try again.");
     } finally {
       setSending(false);
     }
   };
 
-  /* ── not connected: say exactly what is missing, never pretend ──── */
-  if (!connected) {
-    return (
-      <Panel padded>
-        <div className="max-w-3xl">
-          <h3 className="font-display text-lg font-semibold text-mist-50">
-            Facebook Page messages are not connected yet
-          </h3>
-          <p className="mt-2 text-sm leading-relaxed text-mist-400">
-            This inbox receives messages sent to your Facebook Page and lets you
-            reply from here. Nothing has been wired up yet, so there is nothing
-            to show — and no message is being missed by this screen, because
-            Facebook is not sending to it at all.
-          </p>
+  /**
+   * Canned replies fill the composer and nothing more. They are never sent on
+   * a click: the admin still reads what a template wrote and edits the parts
+   * that are wrong for this customer before it goes out.
+   */
+  const insertQuick = (text: string) =>
+    setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")}\n${text}` : text));
 
-          <ol className="mt-6 space-y-5">
-            <Step n={1} title="Put the app secret in .env">
-              <p>
-                In your Meta app, open <em>Settings → Basic</em> and copy the{" "}
-                <strong>App Secret</strong>. Add it to the server&apos;s{" "}
-                <code>.env</code>, then redeploy:
-              </p>
-              <Code lines={[`META_APP_SECRET=…`]} />
-              <p className="mt-2 text-[0.78rem] text-mist-500">
-                This is what lets the server prove a webhook really came from
-                Meta. Without it every POST is refused.
-              </p>
-            </Step>
+  const countFor = (key: string) =>
+    key === "unread" ? counts.unread : key === "replied" ? counts.replied : counts.total;
 
-            <Step n={2} title="Set the webhook callback in Meta">
-              <p>
-                In <em>App → Webhooks</em>, subscribe to the{" "}
-                <strong>Page</strong> object for the <code>messages</code>{" "}
-                field, and use this callback URL:
-              </p>
-              <Code lines={[`https://imalissa.onrender.com${webhookPath}`]} />
-            </Step>
-
-            <Step n={3} title="Match the verify token">
-              <p>
-                Meta will ask for a verify token. Save one below first, then
-                paste the same value into the Webhook&apos;s{" "}
-                <strong>Verify token</strong> box in Meta:
-              </p>
-              <VerifyTokenForm current={verifyToken} />
-            </Step>
-
-            <Step n={4} title="Add a Page Access Token to reply">
-              <p>
-                Reading messages needs no token, but <em>answering</em> them
-                does. Create a token with <code>pages_messaging</code> in{" "}
-                <em>App → Tools → Access Token Generator</em> and add:
-              </p>
-              <Code lines={[`META_PAGE_TOKEN=…`]} />
-              <p className="mt-2 text-[0.78rem] text-mist-500">
-                Until this line exists you can still <strong>read</strong>{" "}
-                messages here once steps 1–3 are done — you just cannot send a
-                reply from this screen.
-              </p>
-            </Step>
-          </ol>
-
-          <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-[0.8rem] text-mist-400">
-            <strong className="text-mist-200">Missing right now:</strong>{" "}
-            {missing.length > 0 ? (
-              <code className="text-gold-300">{missing.join(", ")}</code>
-            ) : (
-              <span>nothing — the .env side looks complete.</span>
-            )}
-            <p className="mt-1.5 text-[0.76rem] text-mist-500">
-              Page Access Tokens expire. When a reply starts failing, generate a
-              new one and replace the line.
-            </p>
-          </div>
-        </div>
-      </Panel>
-    );
-  }
-
-  const hasFilters = Boolean(urlQ || box !== "unread");
+  const inbound = thread?.filter((m) => m.direction === "INBOUND").length ?? 0;
+  const outbound = thread?.filter((m) => m.direction === "OUTBOUND").length ?? 0;
 
   return (
-    <div>
-      {!canSend && (
-        <div className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-[0.82rem] leading-relaxed text-amber-200">
-          <strong>Read-only:</strong> messages arrive here, but{" "}
-          <code>META_PAGE_TOKEN</code> is not set, so replies cannot be sent
-          from this screen. Answer from Facebook in the meantime.
+    <div className="space-y-4">
+      {/* ── connection state — never claim a link that cannot work ─── */}
+      {!connected && (
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.07] p-4">
+          <p className="text-[0.85rem] font-semibold text-amber-200">
+            Facebook is not connected yet
+          </p>
+          <p className="mt-1 text-[0.8rem] leading-relaxed text-amber-100/80">
+            Messages will not arrive until{" "}
+            <code className="rounded bg-black/30 px-1 py-0.5">
+              {missing.join(", ") || "the required .env values"}
+            </code>{" "}
+            {missing.length === 1 ? "is" : "are"} set on the server.
+          </p>
+        </div>
+      )}
+      {connected && !canSend && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-[0.8rem] leading-relaxed text-mist-400">
+          Reading works; sending does not — <code>META_PAGE_TOKEN</code> is missing, so replies
+          stay read-only.
         </div>
       )}
 
-      <Panel padded={false}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] p-5">
-          <Tabs
-            tabs={BOXES.map((b) => ({ key: b.key, label: b.label, count: countFor(b.key) }))}
-            active={box}
-            onChange={(key) => push({ box: key || "unread" })}
-          />
-          <SearchInput
-            value={q}
-            onChange={setQ}
-            placeholder="Search name or message…"
-            className="w-full sm:w-72"
-          />
-        </div>
-
-        {items.length === 0 ? (
-          <div className="p-5">
-            <Empty
-              title={hasFilters ? "No messages match your filters" : "No unread messages"}
-              hint={
-                hasFilters
-                  ? "Try a different search term, or switch tabs above."
-                  : "New messages from your Facebook Page appear here within seconds."
-              }
+      <div className="grid gap-4 lg:grid-cols-[290px_minmax(0,1fr)] xl:grid-cols-[290px_minmax(0,1fr)_270px]">
+        {/* ── pane 1: conversations ─────────────────────────────────── */}
+        <div className="min-w-0 space-y-3">
+          <Panel padded className="space-y-3">
+            <SearchInput
+              value={q}
+              onChange={setQ}
+              placeholder="Search name, id or message…"
             />
-          </div>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>From</Th>
-                <Th>Message</Th>
-                <Th>Received</Th>
-                <Th>State</Th>
-                <Th className="text-right">Action</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((m) => (
-                <tr key={m.id} className="transition hover:bg-white/[0.03]">
-                  <Td>
+            <Tabs
+              tabs={BOXES.map((b) => ({ ...b, count: countFor(b.key) }))}
+              active={box || "unread"}
+              onChange={(k) => push({ box: k })}
+            />
+
+            {items.length === 0 ? (
+              <Empty
+                title={total === 0 ? "No conversations yet" : "Nothing in this box"}
+                hint={
+                  total === 0
+                    ? "Message your Facebook Page and it will appear here within seconds."
+                    : "Try another tab."
+                }
+              />
+            ) : (
+              <ul className="space-y-2">
+                {items.map((c) => (
+                  <li key={`${c.channel}-${c.senderId}`}>
                     <Link
-                      href={`/admin/social/${m.id}`}
-                      title="Open this conversation"
-                      className="group block min-w-0"
+                      href={`/admin/social/${c.id}${
+                        (() => {
+                          const sp = new URLSearchParams();
+                          for (const [k, v] of Object.entries(searchParams)) {
+                            if (typeof v === "string") sp.set(k, v);
+                            else if (Array.isArray(v)) v.forEach((x) => sp.append(k, x));
+                          }
+                          const qs = sp.toString();
+                          return qs ? `?${qs}` : "";
+                        })()
+                      }`}
+                      className={cn(
+                        "block rounded-xl border p-3 transition",
+                        selectedId === c.id
+                          ? "border-gold-500/45 bg-gold-500/[0.10]"
+                          : "border-white/[0.06] hover:border-white/20 hover:bg-white/[0.03]"
+                      )}
                     >
-                      <span
-                        className={cn(
-                          "block truncate transition-colors group-hover:text-gold-300",
-                          m.isRead ? "font-semibold text-mist-300" : "font-bold text-mist-50"
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span
+                          className={cn(
+                            "truncate",
+                            c.unread
+                              ? "text-[0.86rem] font-bold text-mist-50"
+                              : "text-[0.86rem] font-semibold text-mist-300"
+                          )}
+                        >
+                          {c.senderName ?? "Facebook sender"}
+                        </span>
+                        <span className="shrink-0 text-[0.66rem] text-mist-600">
+                          {timeAgo(c.receivedAt)}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 truncate text-[0.76rem] text-mist-500">{c.preview}</p>
+
+                      <div className="mt-1.5 flex items-center gap-2 text-[0.66rem]">
+                        <span className="truncate text-mist-600">{c.senderId}</span>
+                        {c.unread && (
+                          <span className="shrink-0 rounded-full bg-gold-500/15 px-1.5 py-0.5 font-semibold text-gold-300">
+                            new
+                          </span>
                         )}
-                      >
-                        {m.senderName ?? "Facebook sender"}
-                      </span>
-                      <span className="block truncate text-[0.72rem] text-mist-600 transition-colors group-hover:text-gold-400/80">
-                        {m.senderId} →
-                      </span>
+                        {c.hasReply && (
+                          <span className="shrink-0 text-emerald-400/90">replied</span>
+                        )}
+                      </div>
                     </Link>
-                  </Td>
-                  <Td>
-                    <Link
-                      href={`/admin/social/${m.id}`}
-                      title="Open this conversation"
-                      className={cn(
-                        "block transition-colors hover:text-gold-300 hover:underline",
-                        m.isRead ? "text-mist-400" : "font-semibold text-gold-200"
-                      )}
-                    >
-                      {m.isRead && (
-                        <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-gold-400 align-middle" />
-                      )}
-                      {m.body}
-                    </Link>
-                  </Td>
-                  <Td className="whitespace-nowrap">
-                    <span className="block text-mist-300">
-                      {formatDate(m.receivedAt, "short")}
-                    </span>
-                    <span className="block text-[0.72rem] text-mist-600">
-                      {timeAgo(m.receivedAt)}
-                    </span>
-                  </Td>
-                  <Td>
-                    <span
-                      className={cn(
-                        "inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-wide",
-                        m.repliedAt
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                          : m.isRead
-                            ? "border-white/15 bg-white/[0.05] text-mist-400"
-                            : "border-gold-500/30 bg-gold-500/10 text-gold-300"
-                      )}
-                    >
-                      {m.repliedAt ? "Replied" : m.isRead ? "Read" : "Unread"}
-                    </span>
-                  </Td>
-                  <Td className="text-right">
-                    {canSend ? (
-                      <Btn
-                        variant={m.repliedAt ? "outline" : "gold"}
-                        onClick={() => {
-                          setReplying(m);
-                          setDraft("");
-                          setReplyError(null);
-                        }}
-                      >
-                        {m.repliedAt ? "Reply again" : "Reply"}
-                      </Btn>
-                    ) : (
-                      <span className="text-[0.74rem] text-mist-600" title="META_PAGE_TOKEN is not set on the server">
-                        Read-only
-                      </span>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </Panel>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
 
-      <Pagination
-        page={page}
-        totalPages={totalPages}
-        basePath="/admin/social"
-        searchParams={searchParams}
-      />
-
-      <Modal
-        open={Boolean(replying)}
-        onClose={() => {
-          if (sending) return; // don't lose a reply mid-flight
-          setReplying(null);
-          setReplyError(null);
-        }}
-        title={`Reply to ${replying?.senderName ?? "Facebook sender"}`}
-      >
-        <div className="space-y-3">
-          {/* The customer's own words, so the answer is written in context. */}
-          <blockquote className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[0.84rem] leading-relaxed text-mist-300">
-            {replying?.body}
-          </blockquote>
-
-          <TextArea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Type your reply…"
-            rows={5}
-            maxLength={2000}
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            basePath="/admin/social"
+            searchParams={searchParams}
           />
-
-          {replyError && (
-            <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[0.8rem] leading-relaxed text-red-300">
-              {replyError}
-            </p>
-          )}
-
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.72rem] text-mist-600">
-              {draft.length}/2000
-            </span>
-            <div className="flex gap-3">
-              <Btn variant="outline" onClick={() => setReplying(null)} disabled={sending}>
-                Cancel
-              </Btn>
-              <BusyBtn busy={sending} onClick={sendReply} disabled={!draft.trim()}>
-                Send reply
-              </BusyBtn>
-            </div>
-          </div>
         </div>
-      </Modal>
-    </div>
-  );
-}
 
-/* ── setup-guide primitives ──────────────────────────────────────── */
+        {/* ── pane 2: the thread ────────────────────────────────────── */}
+        <div className="min-w-0">
+          {!selectedId ? (
+            <Panel padded>
+              <Empty
+                title="Select a conversation"
+                hint="Pick someone on the left to read and reply to their messages."
+              />
+            </Panel>
+          ) : !thread ? (
+            <Panel padded>
+              <Empty title="Conversation not found" hint="It may have been removed." />
+            </Panel>
+          ) : (
+            <Panel padded className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
+                <div className="min-w-0">
+                  <h3 className="truncate font-display text-lg font-semibold text-mist-50">
+                    {sender?.name ?? "Facebook sender"}
+                  </h3>
+                  <p className="mt-0.5 truncate text-[0.72rem] text-mist-600">
+                    {sender?.channel} · {sender?.id}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2 text-[0.68rem] font-semibold uppercase tracking-wide">
+                  <span className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 text-mist-400">
+                    {inbound} in · {outbound} out
+                  </span>
+                </div>
+              </div>
 
-function Step({
-  n,
-  title,
-  children,
-}: {
-  n: number;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <li className="flex gap-3">
-      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-gold-500/30 bg-gold-500/10 text-[0.74rem] font-bold text-gold-300">
-        {n}
-      </span>
-      <div className="min-w-0 text-sm leading-relaxed text-mist-400">
-        <p className="font-semibold text-mist-100">{title}</p>
-        <div className="mt-1.5">{children}</div>
+              <ol className="max-h-[54vh] space-y-4 overflow-y-auto pr-1">
+                {thread.map((m) => (
+                  <li key={m.id}>
+                    {m.direction === "OUTBOUND" ? (
+                      /* The shop's own words. Right-aligned and labelled, so a
+                         colleague can tell at a glance who said what. */
+                      <div className="flex justify-end">
+                        <div className="max-w-[85%] text-right">
+                          <div className="whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-gold-500/30 bg-gold-500/[0.10] px-4 py-2.5 text-left text-[0.88rem] leading-relaxed text-gold-100">
+                            {m.body}
+                          </div>
+                          <div className="mt-1 text-[0.68rem] text-mist-600">
+                            You · {formatDate(m.receivedAt, "short")}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-start">
+                        <div className="max-w-[85%]">
+                          <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-white/10 bg-white/[0.05] px-4 py-2.5 text-[0.88rem] leading-relaxed text-mist-100">
+                            {m.body}
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-[0.68rem] text-mist-600">
+                            <span title={formatDate(m.receivedAt, "short")}>
+                              {timeAgo(m.receivedAt)}
+                            </span>
+                            {!m.isRead && (
+                              <span className="font-semibold uppercase tracking-wide text-gold-300">
+                                unread
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ol>
+
+              {/* ── composer ─────────────────────────────────────── */}
+              {!canSend ? (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-[0.82rem] leading-relaxed text-amber-200">
+                  <strong>Read-only:</strong> this conversation can be viewed, but{" "}
+                  <code>META_PAGE_TOKEN</code> is not set on the server, so no reply can be sent
+                  from here.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <TextArea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="Type your reply…"
+                    rows={4}
+                    maxLength={2000}
+                  />
+                  {error && (
+                    <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[0.8rem] leading-relaxed text-red-300">
+                      {error}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[0.72rem] text-mist-600">{draft.length}/2000</span>
+                    <BusyBtn busy={sending} onClick={send} disabled={!draft.trim()}>
+                      Send reply
+                    </BusyBtn>
+                  </div>
+                </div>
+              )}
+            </Panel>
+          )}
+        </div>
+
+        {/* ── pane 3: who this is + canned replies ──────────────────── */}
+        <div className="min-w-0 space-y-4">
+          <Panel padded className="space-y-3">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-mist-600">
+              Customer
+            </p>
+            {sender ? (
+              <dl className="space-y-2 text-[0.8rem]">
+                <div>
+                  <dt className="text-[0.68rem] uppercase tracking-wide text-mist-600">Name</dt>
+                  <dd className="font-semibold text-mist-200">{sender.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-[0.68rem] uppercase tracking-wide text-mist-600">
+                    Sender ID
+                  </dt>
+                  <dd className="break-all font-mono text-[0.76rem] text-mist-300">
+                    {sender.id}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[0.68rem] uppercase tracking-wide text-mist-600">
+                    Channel
+                  </dt>
+                  <dd className="text-mist-300">{sender.channel}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-[0.8rem] text-mist-500">Select a conversation first.</p>
+            )}
+          </Panel>
+
+          <Panel padded className="space-y-3">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-mist-600">
+              Quick replies
+            </p>
+            {!canSend ? (
+              <p className="text-[0.78rem] leading-relaxed text-mist-500">
+                Unavailable while replies are read-only.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {QUICK_REPLIES.map((qr) => (
+                  <button
+                    key={qr.label}
+                    type="button"
+                    disabled={!selectedId}
+                    onClick={() => insertQuick(qr.text)}
+                    className="rounded-lg border border-white/[0.08] px-3 py-2 text-left text-[0.8rem] text-mist-300 transition hover:border-gold-500/40 hover:text-gold-200 disabled:opacity-40"
+                    title={qr.text}
+                  >
+                    {qr.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[0.7rem] leading-relaxed text-mist-600">
+              Inserts into the box — nothing sends until you press Send.
+            </p>
+          </Panel>
+
+          {/* Setup values are non-secret and the admin needs them to finish
+              wiring Meta, so they are shown here rather than hidden. */}
+          <Panel padded className="space-y-2 text-[0.74rem]">
+            <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-mist-600">
+              Webhook
+            </p>
+            <p className="break-all text-mist-400">
+              <span className="text-mist-600">callback </span>
+              {webhookPath}
+            </p>
+            <p className="break-all text-mist-400">
+              <span className="text-mist-600">verify token </span>
+              {verifyToken || "—"}
+            </p>
+            <p className="break-all text-mist-400">
+              <span className="text-mist-600">page id </span>
+              {pageId || "—"}
+            </p>
+          </Panel>
+        </div>
       </div>
-    </li>
-  );
-}
-
-/** Monospace block with a copy button — values here are never secret. */
-function Code({ lines }: { lines: string[] }) {
-  const [copied, setCopied] = useState(false);
-  const text = lines.join("\n");
-  return (
-    <div className="mt-2 flex items-start gap-2">
-      <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-white/10 bg-ink-950/70 p-3 text-[0.78rem] leading-relaxed text-gold-200">
-        {text}
-      </pre>
-      <Btn
-        variant="outline"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(text);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          } catch {
-            /* clipboard blocked — the value is on screen anyway */
-          }
-        }}
-      >
-        {copied ? "Copied" : "Copy"}
-      </Btn>
     </div>
   );
-}
-
-/**
- * Lets the owner mint the verify token without leaving the page. It is not a
- * secret in the same class as the app secret — but it is still generated
- * server-side-looking (crypto-random) rather than a word a bot would guess.
- */
-function VerifyTokenForm({ current }: { current: string }) {
-  const [value, setValue] = useState(current);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const router = useRouter();
-
-  const save = async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/admin/social/verify-token", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ verifyToken: value }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { message?: string };
-      if (!res.ok) {
-        setMsg(data.message || "Could not save — please try again.");
-        return;
-      }
-      setMsg("Saved. Now paste this exact value into Meta's verify token box.");
-      router.refresh();
-    } catch {
-      setMsg("Network error — please try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mt-2 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <TextInput
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="e.g. imalissa-verify-9f2c…"
-          className="w-full sm:w-80"
-        />
-        <Btn
-          variant="outline"
-          onClick={() => setValue(`imalissa-${cryptoRandom()}`)}
-        >
-          Generate
-        </Btn>
-        <BusyBtn busy={busy} onClick={save} disabled={!value.trim()}>
-          Save
-        </BusyBtn>
-      </div>
-      {msg && <p className="text-[0.78rem] text-mist-500">{msg}</p>}
-    </div>
-  );
-}
-
-/** 12 hex chars from the browser CSPRNG — enough that guessing is hopeless. */
-function cryptoRandom(): string {
-  const bytes = new Uint8Array(6);
-  // crypto.getRandomValues is available in every browser that runs React 19.
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

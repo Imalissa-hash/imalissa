@@ -55,7 +55,10 @@ export const POST = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
   if (!msg) throw notFound("Message not found");
 
   const token = process.env.META_PAGE_TOKEN ?? "";
-  const graph = `https://graph.facebook.com/v21.0/me/messages`;
+  // v26.0 matches the rest of this integration (webhook, subscription calls).
+  // This path had never executed before the /reply mount fix, so there is no
+  // older working version worth preserving.
+  const graph = `https://graph.facebook.com/v26.0/me/messages`;
 
   let messageId: string | null = null;
   let graphError: string | null = null;
@@ -105,6 +108,39 @@ export const POST = withApi<Ctx>(async (req: NextRequest, ctx?: Ctx) => {
     where: { id },
     data: { isRead: true, repliedAt: new Date() },
   });
+
+  // Persist the words we just sent as an OUTBOUND row in the same
+  // conversation. Without this the thread shows the customer speaking and
+  // then silence — the admin cannot see their own answer, and a colleague
+  // opening the thread has no idea what was promised.
+  //
+  // externalId is Graph's message id so a redelivery is a no-op, and
+  // senderId stays the customer's PSID so the row groups into this thread
+  // rather than becoming a conversation of its own.
+  try {
+    await prisma.socialMessage.createMany({
+      data: [
+        {
+          senderId: msg.senderId,
+          externalId: messageId,
+          body,
+          direction: "OUTBOUND",
+          isRead: true,
+          receivedAt: new Date(),
+        },
+      ],
+      skipDuplicates: true,
+    });
+  } catch (err) {
+    // The reply WAS delivered — that fact is already true and must not be
+    // reported as a failure. But a row we cannot write means the thread will
+    // look unanswered, so this is logged loudly rather than swallowed.
+    console.error(
+      `[social] reply delivered to ${msg.senderId} but not stored: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
 
   await audit({
     adminId: admin.id,

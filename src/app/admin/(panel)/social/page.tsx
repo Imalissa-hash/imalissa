@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db";
 import { getSettingGroup } from "@/lib/settings";
 import { socialConfigured } from "@/lib/social";
 import { AdminPageHeader } from "@/components/admin/AdminShell";
-import { SocialClient, type SocialRow, type SocialCounts } from "@/components/admin/social/SocialClient";
+import { SocialClient } from "@/components/admin/social/SocialClient";
 import { pageGuard } from "@/components/admin/AccessDenied";
+import { loadInbox } from "./inbox";
 
 export const metadata: Metadata = {
   title: "Social Inbox",
@@ -14,17 +13,19 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 20;
 const BOXES = ["unread", "all", "replied"];
 
 /**
- * Admin → Social Inbox — messages from the shop's Facebook Page.
+ * Admin → Social Inbox — the conversation list with nothing selected.
+ *
+ * It renders the same client component as /admin/social/[id] with an empty
+ * middle pane, so opening a conversation swaps the thread in without the
+ * surrounding panel reflowing into a different layout.
  *
  * The page is honest about state: it reads the SAME config the webhook reads
  * (verify token set? META_APP_SECRET present? META_PAGE_TOKEN present?) and
- * either shows the inbox or shows exactly which credential is missing with
- * the Meta steps to supply it. It never renders a "connected" badge for an
- * install that cannot actually receive a message.
+ * says exactly which credential is missing rather than rendering a
+ * "connected" badge for an install that cannot receive a message.
  */
 export default async function AdminSocialPage({
   searchParams,
@@ -45,76 +46,36 @@ export default async function AdminSocialPage({
   const q = one("q").trim();
   const requestedPage = Math.max(1, Number(one("page")) || 1);
 
-  const [settings, cfg] = await Promise.all([
+  const [settings, cfg, inbox] = await Promise.all([
     getSettingGroup("social"),
     // Read once so the banner and the list can never disagree.
     Promise.resolve(socialConfigured()),
+    loadInbox({ box, q, requestedPage }),
   ]);
 
-  const where: Prisma.SocialMessageWhereInput = {};
-  if (box === "unread") where.isRead = false;
-  if (box === "replied") where.repliedAt = { not: null };
-  if (q) {
-    where.OR = [
-      { senderName: { contains: q } },
-      { senderId: { contains: q } },
-      { body: { contains: q } },
-    ];
-  }
-
-  const [rows, total, unread, replied] = await Promise.all([
-    prisma.socialMessage.findMany({
-      where,
-      orderBy: { receivedAt: "desc" },
-      skip: (requestedPage - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    prisma.socialMessage.count({ where }),
-    prisma.socialMessage.count({ where: { isRead: false } }),
-    prisma.socialMessage.count({ where: { repliedAt: { not: null } } }),
-  ]);
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const page = Math.min(requestedPage, totalPages);
-
-  const items: SocialRow[] = rows.map((m) => ({
-    id: m.id,
-    channel: m.channel,
-    senderId: m.senderId,
-    senderName: m.senderName,
-    body: m.body,
-    isRead: m.isRead,
-    repliedAt: m.repliedAt ? m.repliedAt.toISOString() : null,
-    receivedAt: m.receivedAt.toISOString(),
-  }));
-
-  const counts: SocialCounts = { unread, replied, total: total };
-
-  const webhookPath = "/api/webhooks/meta";
+  const subtitle = cfg.canVerify
+    ? `${inbox.counts.unread} unread · ${inbox.counts.replied} replied through Facebook`
+    : "Facebook Page messages arrive here once the connection is finished";
 
   return (
     <div>
-      <AdminPageHeader
-        title="Social Inbox"
-        subtitle={
-          cfg.canVerify
-            ? `${unread.toLocaleString()} unread · ${replied} replied through Facebook`
-            : "Facebook Page messages arrive here once the connection is finished"
-        }
-      />
+      <AdminPageHeader title="Social Inbox" subtitle={subtitle} />
       <SocialClient
-        items={items}
-        total={total}
-        totalPages={totalPages}
-        page={page}
+        items={inbox.items}
+        counts={inbox.counts}
+        total={inbox.total}
+        totalPages={inbox.totalPages}
+        page={inbox.page}
         searchParams={sp}
-        counts={counts}
         connected={cfg.canVerify}
         canSend={cfg.canSend}
         missing={cfg.missing}
         verifyToken={settings.verifyToken}
         pageId={settings.pageId}
-        webhookPath={webhookPath}
+        webhookPath="/api/webhooks/meta"
+        selectedId={null}
+        thread={null}
+        sender={null}
       />
     </div>
   );

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
+import { getSettingGroup } from "@/lib/settings";
 import { socialConfigured } from "@/lib/social";
-import { BackLink } from "@/components/admin/AdminShell";
-import { SocialThreadClient } from "@/components/admin/social/SocialThreadClient";
-import type { SocialThreadMessage } from "@/components/admin/social/SocialThreadClient";
+import { AdminPageHeader } from "@/components/admin/AdminShell";
+import { SocialClient } from "@/components/admin/social/SocialClient";
 import { pageGuard } from "@/components/admin/AccessDenied";
+import { loadInbox, loadThread } from "../inbox";
 
 export const metadata: Metadata = {
   title: "Conversation",
@@ -14,76 +14,79 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
+const BOXES = ["unread", "all", "replied"];
+
 /**
  * Admin → Social Inbox → one conversation.
  *
- * The [id] in the URL is a message id — the same id the inbox list links to
- * — but it only anchors the lookup. A "conversation" has no table of its
- * own: it is every SocialMessage sharing a senderId and channel, which is
- * exactly what a reply is addressed to. Using a message id rather than the
- * raw PSID keeps the URL stable and readable, and matches how the other
- * detail pages (/admin/messages/[id], /admin/orders/[id]) are addressed.
+ * The [id] in the URL is a message id rather than the raw PSID: a message id
+ * is unique and readable, a PSID is a long opaque number, and this matches
+ * how /admin/messages/[id] and /admin/orders/[id] are addressed. It only
+ * anchors the lookup — a conversation has no table of its own, it is every
+ * SocialMessage sharing a channel and senderId, which is exactly what a reply
+ * is addressed to.
+ *
+ * The surrounding list is loaded identically to /admin/social so opening a
+ * thread does not reflow the panel, and the URL stays shareable: a colleague
+ * opening this link lands on the same conversation with the same filters.
  */
 export default async function AdminSocialThreadPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const denied = await pageGuard("customers.view");
   if (denied) return denied;
 
-  const { id } = await params;
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
+  const one = (k: string) => {
+    const v = sp[k];
+    return typeof v === "string" ? v : "";
+  };
+  const box = BOXES.includes(one("box")) ? one("box") : "unread";
+  const q = one("q").trim();
+  const requestedPage = Math.max(1, Number(one("page")) || 1);
 
-  const anchor = await prisma.socialMessage.findUnique({
-    where: { id },
-    select: { id: true, senderId: true, channel: true, senderName: true },
-  });
-  if (!anchor) notFound();
-
-  const [rows, cfg] = await Promise.all([
-    prisma.socialMessage.findMany({
-      where: { senderId: anchor.senderId, channel: anchor.channel },
-      // Oldest first — a conversation reads downward in arrival order, not
-      // the reverse the inbox list needs to show the newest thing on top.
-      orderBy: { receivedAt: "asc" },
-      select: {
-        id: true,
-        body: true,
-        isRead: true,
-        repliedAt: true,
-        receivedAt: true,
-        senderName: true,
-      },
-    }),
+  const [thread, settings, cfg] = await Promise.all([
+    loadThread(id),
+    getSettingGroup("social"),
     Promise.resolve(socialConfigured()),
   ]);
+  // An id that resolves to nothing is a bad link, not an empty inbox.
+  if (!thread || !thread.anchor) notFound();
 
-  const messages: SocialThreadMessage[] = rows.map((m) => ({
-    id: m.id,
-    body: m.body,
-    isRead: m.isRead,
-    repliedAt: m.repliedAt ? m.repliedAt.toISOString() : null,
-    receivedAt: m.receivedAt.toISOString(),
-  }));
+  const inbox = await loadInbox({ box, q, requestedPage });
 
-  // A senderName can land on a later row (Meta only supplies it when it
-  // resolves a profile), so fall back across the thread before giving up.
-  const senderName =
-    rows.find((m) => m.senderName)?.senderName ?? anchor.senderName ?? "Facebook sender";
+  const subtitle = cfg.canVerify
+    ? `${inbox.counts.unread} unread · ${inbox.counts.replied} replied through Facebook`
+    : "Facebook Page messages arrive here once the connection is finished";
 
   return (
     <div>
-      <BackLink href="/admin/social" label="Back to inbox" />
-      <div className="mt-4">
-        <SocialThreadClient
-          anchorId={anchor.id}
-          senderName={senderName}
-          senderId={anchor.senderId}
-          channel={anchor.channel}
-          messages={messages}
-          canSend={cfg.canSend}
-        />
-      </div>
+      <AdminPageHeader title="Social Inbox" subtitle={subtitle} />
+      <SocialClient
+        items={inbox.items}
+        counts={inbox.counts}
+        total={inbox.total}
+        totalPages={inbox.totalPages}
+        page={inbox.page}
+        searchParams={sp}
+        connected={cfg.canVerify}
+        canSend={cfg.canSend}
+        missing={cfg.missing}
+        verifyToken={settings.verifyToken}
+        pageId={settings.pageId}
+        webhookPath="/api/webhooks/meta"
+        selectedId={thread.anchor.id}
+        thread={thread.messages}
+        sender={{
+          name: thread.senderName ?? "Facebook sender",
+          id: thread.anchor.senderId,
+          channel: thread.anchor.channel,
+        }}
+      />
     </div>
   );
 }

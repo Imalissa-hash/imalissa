@@ -883,6 +883,19 @@ enum SocialChannel {
   WHATSAPP
 }
 
+// Which side of the conversation a row records.
+//
+// The inbox needs to show both directions in one thread — the customer's
+// words AND what the Page said back — which means one table has to hold both.
+// `senderId` deliberately keeps meaning "the PSID this conversation belongs
+// to" on OUTBOUND rows too: an outbound row's sender is the Page, but if it
+// stored the page id the row would group into a conversation of its own and
+// vanish from the thread it belongs to.
+enum SocialDirection {
+  INBOUND
+  OUTBOUND
+}
+
 model SocialMessage {
   id String @id @default(cuid())
 
@@ -904,6 +917,13 @@ model SocialMessage {
   /// is TEXT — the MySQL default varchar(191) would silently truncate a
   /// longer question and the admin would answer the wrong thing.
   body String @db.Text
+
+  /// Which side spoke. INBOUND is the customer and the default, so every
+  /// row that already exists stays correct without a backfill. OUTBOUND is
+  /// anything the Page sent: a reply composed here, or Meta's own
+  /// auto-response — both have to be visible or the admin cannot see the
+  /// conversation they are actually having.
+  direction SocialDirection @default(INBOUND)
 
   isRead Boolean @default(false)
 

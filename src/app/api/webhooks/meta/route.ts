@@ -21,8 +21,27 @@ import {
  * POST = a real inbound message. We take the RAW bytes (a parsed-and-
  *        re-serialised body would never match the signature), verify
  *        `X-Hub-Signature-256` against META_APP_SECRET, then store each
- *        inbound message. `externalId` is unique, so Meta's retries — and
- *        its habit of redelivering on a slow 200 — land as no-ops.
+ *        message. `externalId` is unique, so Meta's retries — and its habit
+ *        of redelivering on a slow 200 — land as no-ops.
+ *
+ * BOTH DIRECTIONS ARE STORED, deliberately:
+ *
+ *   INBOUND  — the customer's words (`sender.id`).
+ *   OUTBOUND — anything the Page sent, which arrives as `message.is_echo`.
+ *              That is the only way Meta's own auto-responses (Instant
+ *              Reply) ever appear: we did not send them, so no other path
+ *              could know they happened.
+ *
+ * The catch with OUTBOUND is that the reply route ALREADY writes our own
+ * replies, so an echo of our own text would duplicate a row that exists. The
+ * echo is therefore dropped when the same conversation already has the same
+ * outbound text from the last few minutes. Matching on
+ * `externalId` alone is not enough: the mid Meta returns from Send and the
+ * mid it echoes back are not reliably the same string.
+ *
+ * senderId is the conversation key on OUTBOUND rows too — the customer's
+ * PSID, not the page's — or the row would group into a conversation of its
+ * own and disappear from the thread it belongs to.
  *
  * Always answers 200 with an empty body once accepted: Meta treats anything
  * else as a failure and redelivers forever.
@@ -43,6 +62,17 @@ type Messaging = {
   recipient?: { id?: string };
   message?: { mid?: string; text?: string; is_echo?: boolean };
   timestamp?: number;
+};
+
+/** A row ready to insert — direction is decided per message, not per batch. */
+type Pending = {
+  senderId: string;
+  externalId: string;
+  body: string;
+  receivedAt: Date;
+  direction: "INBOUND" | "OUTBOUND";
+  /** Display name resolved after the payload is read; null when unknown. */
+  senderName?: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -76,6 +106,36 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: { "content-type": "text/plain" },
   });
+}
+
+/**
+ * Fetch a display name for a PSID.
+ *
+ * Meta's webhook payload carries only an opaque id — the human name has to be
+ * asked for separately with the Page token. Returns null on ANY failure
+ * (no token, no permission, timeout) so a name problem can never stop a
+ * message being stored; the UI already falls back to showing the PSID.
+ */
+async function lookupSenderName(psid: string): Promise<string | null> {
+  const token = process.env.META_PAGE_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v26.0/${encodeURIComponent(psid)}` +
+        `?fields=name&access_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    const data = (await res.json().catch(() => ({}))) as {
+      name?: string;
+      error?: unknown;
+    };
+    if (res.ok && typeof data.name === "string" && data.name.trim()) {
+      return data.name.trim();
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -114,41 +174,115 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: true });
   }
 
-  const rows: {
-    senderId: string;
-    externalId: string;
-    body: string;
-    receivedAt: Date;
-  }[] = [];
+  const rows: Pending[] = [];
 
   for (const entry of payload.entry ?? []) {
     for (const msg of entry.messaging ?? []) {
-      // is_echo = our own reply reflected back. Storing it would fill the
-      // inbox with the shop's own words, so it is skipped.
-      if (!msg.message?.text || msg.message.is_echo) continue;
-      const senderId = msg.sender?.id;
-      const mid = msg.message.mid;
-      if (!senderId || !mid) continue;
+      const text = msg.message?.text;
+      const mid = msg.message?.mid;
+      if (!text || !mid) continue;
 
-      rows.push({
-        senderId,
-        externalId: mid,
-        body: msg.message.text,
-        // Meta stamps in epoch ms; fall back to now if absent.
-        receivedAt: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-      });
+      const receivedAt = msg.timestamp ? new Date(msg.timestamp) : new Date();
+
+      if (msg.message?.is_echo) {
+        // Page-sent. The conversation belongs to whoever RECEIVED it.
+        const key = msg.recipient?.id;
+        if (!key) continue;
+        rows.push({ senderId: key, externalId: mid, body: text, receivedAt, direction: "OUTBOUND" });
+      } else {
+        const senderId = msg.sender?.id;
+        if (!senderId) continue;
+        rows.push({ senderId, externalId: mid, body: text, receivedAt, direction: "INBOUND" });
+      }
     }
   }
 
   if (rows.length > 0) {
+    // ── drop echoes of replies we already wrote ──────────────────
+    // The reply route stores our own outbound text the moment Graph accepts
+    // it; Meta then echoes that same text back. Without this the thread
+    // would show the admin's answer twice.
+    const outbound = rows.filter((r) => r.direction === "OUTBOUND");
+    let uniqueOutbound = outbound;
+    if (outbound.length > 0) {
+      const senders = [...new Set(outbound.map((r) => r.senderId))];
+      const bodies = [...new Set(outbound.map((r) => r.body))];
+      const existing = await prisma.socialMessage.findMany({
+        where: {
+          direction: "OUTBOUND",
+          senderId: { in: senders },
+          body: { in: bodies },
+          receivedAt: { gte: new Date(Date.now() - 5 * 60_000) },
+        },
+        select: { senderId: true, body: true },
+      });
+      const seen = new Set(existing.map((r) => `${r.senderId}\u0000${r.body}`));
+      uniqueOutbound = outbound.filter((r) => !seen.has(`${r.senderId}\u0000${r.body}`));
+      const dropped = outbound.length - uniqueOutbound.length;
+      if (dropped > 0) {
+        console.log(`[social] suppressed ${dropped} echo(s) of replies already stored`);
+      }
+    }
+
+    const finalRows = [
+      ...rows.filter((r) => r.direction === "INBOUND"),
+      ...uniqueOutbound,
+    ];
+
+    // ── attach a human name to each new sender ───────────────────
+    // Batched per unique PSID: one lookup per person per webhook, not one
+    // per message.
+    const newSenders = [
+      ...new Set(finalRows.filter((r) => r.direction === "INBOUND").map((r) => r.senderId)),
+    ];
+    const names = new Map<string, string | null>();
+    if (newSenders.length > 0) {
+      await Promise.all(
+        newSenders.map(async (psid) => {
+          const existing = await prisma.socialMessage.findFirst({
+            where: { senderId: psid, senderName: { not: null } },
+            select: { senderName: true },
+          });
+          names.set(psid, existing?.senderName ?? (await lookupSenderName(psid)));
+        })
+      );
+      for (const r of finalRows) {
+        if (r.direction !== "INBOUND") continue;
+        r.senderName = names.get(r.senderId) ?? null;
+      }
+    }
+
     // createMany + skipDuplicates on the unique externalId: Meta redelivers
     // aggressively, and a duplicate inbox row is worse than a dropped one.
     const created = await prisma.socialMessage.createMany({
-      data: rows,
+      data: finalRows.map((r) => ({
+        senderId: r.senderId,
+        externalId: r.externalId,
+        body: r.body,
+        receivedAt: r.receivedAt,
+        direction: r.direction,
+        ...(r.senderName ? { senderName: r.senderName } : {}),
+      })),
       skipDuplicates: true,
     });
+
+    // Backfill names onto older rows for people we just identified, so the
+    // conversation LIST shows a name instead of an opaque PSID. updateMany
+    // cannot vary its value per row, so each sender is filled individually —
+    // there are only ever a handful per webhook, and writing one name across
+    // every unidentified sender would label people with each other's names.
+    const named = [...names.entries()].filter(([, v]) => v) as [string, string][];
+    for (const [psid, name] of named) {
+      await prisma.socialMessage.updateMany({
+        where: { senderId: psid, senderName: null },
+        data: { senderName: name },
+      });
+    }
+
     console.log(
-      `[social] ${created.count} of ${rows.length} inbound message(s) stored`
+      `[social] ${created.count} of ${finalRows.length} message(s) stored ` +
+        `(${finalRows.filter((r) => r.direction === "INBOUND").length} in, ` +
+        `${finalRows.filter((r) => r.direction === "OUTBOUND").length} out)`
     );
   }
 
