@@ -144,6 +144,40 @@ export function SocialClient({
   }, [selectedId, unread]);
 
   /**
+   * Keep the inbox alive.
+   *
+   * The list and thread are rendered by SERVER components, so when a customer
+   * messaged nothing on screen changed at all: an admin sitting on an idle tab
+   * never learned there was anyone waiting, and could only find out by
+   * reloading by hand. That is why a message "did not appear" even when it
+   * had been delivered.
+   *
+   * Re-running the route on an interval re-executes loadInbox/loadThread, so
+   * a new message surfaces on its own and the admin can answer straight away.
+   *
+   * `router.refresh()` re-renders server components in place without
+   * remounting this component, so `draft`, `selectedId` and `error` all
+   * survive — typing through a refresh is safe, which is the whole point of
+   * running it while composing rather than freezing it until the box empties.
+   *
+   * Skipped while sending so a refresh cannot race the POST in flight, and
+   * skipped while the tab is hidden because nobody is looking — a timer that
+   * only burns server renders in a background tab is pure waste.
+   */
+  const REFRESH_MS = 10_000;
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (sending) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      router.refresh();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sending]);
+
+  /**
    * Send a real reply through Messenger. The row is only marked "Replied"
    * after Facebook ACCEPTS the message — if Graph refuses the error stays on
    * screen and the customer is visibly still waiting, which is the honest

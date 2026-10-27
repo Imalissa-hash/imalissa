@@ -18,3 +18,5 @@ backups/
 
 # Local deploy hand-off file: contains secrets, never committed.
 deploy/render-env.txt
+# Logs from the detached local dev server (Start-Process redirects).
+deploy/dev-server*.log
