@@ -38,6 +38,7 @@ export function SocialClient({
   totalPages,
   page,
   searchParams,
+  activeBox,
   connected,
   canSend,
   missing,
@@ -54,6 +55,12 @@ export function SocialClient({
   totalPages: number;
   page: number;
   searchParams: Record<string, string | string[] | undefined>;
+  /**
+   * The box the server actually filled. Differs from `searchParams.box` when
+   * the default "unread" was empty and fell back to "all" — using it keeps
+   * the highlighted tab equal to the list on screen.
+   */
+  activeBox: string;
   connected: boolean;
   canSend: boolean;
   /** .env names still absent — drives the exact "add this line" copy. */
@@ -216,7 +223,7 @@ export function SocialClient({
             />
             <Tabs
               tabs={BOXES.map((b) => ({ ...b, count: countFor(b.key) }))}
-              active={box || "unread"}
+              active={activeBox || box || "unread"}
               onChange={(k) => push({ box: k })}
             />
 

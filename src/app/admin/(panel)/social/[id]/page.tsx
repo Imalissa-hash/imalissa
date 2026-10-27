@@ -45,7 +45,9 @@ export default async function AdminSocialThreadPage({
     const v = sp[k];
     return typeof v === "string" ? v : "";
   };
-  const box = BOXES.includes(one("box")) ? one("box") : "unread";
+  const rawBox = one("box");
+  const boxExplicit = BOXES.includes(rawBox);
+  const box = boxExplicit ? rawBox : "unread";
   const q = one("q").trim();
   const requestedPage = Math.max(1, Number(one("page")) || 1);
 
@@ -57,7 +59,7 @@ export default async function AdminSocialThreadPage({
   // An id that resolves to nothing is a bad link, not an empty inbox.
   if (!thread || !thread.anchor) notFound();
 
-  const inbox = await loadInbox({ box, q, requestedPage });
+  const inbox = await loadInbox({ box, boxExplicit, q, requestedPage });
 
   const subtitle = cfg.canVerify
     ? `${inbox.counts.unread} unread · ${inbox.counts.replied} replied through Facebook`
@@ -73,6 +75,7 @@ export default async function AdminSocialThreadPage({
         totalPages={inbox.totalPages}
         page={inbox.page}
         searchParams={sp}
+        activeBox={inbox.effectiveBox}
         connected={cfg.canVerify}
         canSend={cfg.canSend}
         missing={cfg.missing}

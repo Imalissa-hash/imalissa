@@ -40,6 +40,14 @@ export type InboxResult = {
   total: number;
   totalPages: number;
   page: number;
+  /**
+   * The box actually displayed.
+   *
+   * Usually identical to the requested one, but see the fallback below: the
+   * tab shown highlighted must be the tab whose contents are on screen, or
+   * the header and the list disagree.
+   */
+  effectiveBox: string;
 };
 
 type RawRow = {
@@ -114,10 +122,17 @@ async function attachNames(items: ConversationRow[]): Promise<void> {
 
 export async function loadInbox(params: {
   box: string;
+  /**
+   * Whether the visitor actually chose this box, versus it being the default
+   * because no `box` param was in the URL. Only the default is allowed to
+   * fall back — someone who clicked "Unread" asked for exactly that and
+   * should see it say so rather than be handed different contents.
+   */
+  boxExplicit: boolean;
   q: string;
   requestedPage: number;
 }): Promise<InboxResult> {
-  const { box, q, requestedPage } = params;
+  const { box, boxExplicit, q, requestedPage } = params;
 
   const rows = (await prisma.socialMessage.findMany({
     where: buildWhere(q),
@@ -138,17 +153,34 @@ export async function loadInbox(params: {
   const all = fold(rows);
   await attachNames(all);
 
-  // The box filters CONVERSATIONS, not messages: a thread counts as unread
-  // if anything in it is unread, however many messages that is.
-  let list = all;
-  if (box === "unread") list = all.filter((c) => c.unread);
-  if (box === "replied") list = all.filter((c) => c.hasReply);
-
   const counts: InboxCounts = {
     unread: all.filter((c) => c.unread).length,
     replied: all.filter((c) => c.hasReply).length,
     total: all.length,
   };
+
+  /**
+   * The default box is "unread", which is the right instinct for an inbox —
+   * but if nothing happens to be unread it renders "No conversations yet"
+   * over a list that in fact holds every conversation. Someone debugging a
+   * webhook concludes it is broken when only their filter is, which is
+   * exactly how this was reported.
+   *
+   * So the DEFAULT falls back to "all" whenever it would otherwise be empty.
+   * A box the visitor chose deliberately never falls back: it reports the
+   * truth instead, because quietly handing back different contents than were
+   * asked for is its own kind of misleading.
+   */
+  let effectiveBox = box;
+  if (!boxExplicit && box === "unread" && counts.unread === 0 && counts.total > 0) {
+    effectiveBox = "all";
+  }
+
+  // The box filters CONVERSATIONS, not messages: a thread counts as unread
+  // if anything in it is unread, however many messages that is.
+  let list = all;
+  if (effectiveBox === "unread") list = all.filter((c) => c.unread);
+  if (effectiveBox === "replied") list = all.filter((c) => c.hasReply);
 
   const total = list.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -160,6 +192,7 @@ export async function loadInbox(params: {
     total,
     totalPages,
     page,
+    effectiveBox,
   };
 }
 

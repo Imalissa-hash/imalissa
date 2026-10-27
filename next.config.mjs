@@ -10,6 +10,20 @@ const nextConfig = {
     formats: ["image/avif", "image/webp"],
     deviceSizes: [360, 480, 640, 768, 1024, 1280, 1600],
     imageSizes: [64, 96, 128, 192, 256, 384],
+    /**
+     * Measured on the live site, an optimised variant was served with
+     * `max-age=60`, so every image the shop displays expired after a minute
+     * of inactivity and had to be re-fetched and re-encoded on the next
+     * visit. On a photo-heavy category page that is the difference between a
+     * page that feels instant and one that repaints its imagery each time.
+     *
+     * An hour is deliberate rather than "as long as possible": upload names
+     * are `${Date.now()}-…` so a re-upload is a NEW url and cannot go stale,
+     * but a photo that is currently MISSING comes back at the SAME url (files
+     * are tracked in git, so a deploy restores them). Pinning a placeholder
+     * for a year is the exact bug the old one-year /uploads header caused.
+     */
+    minimumCacheTTL: 3600,
   },
   compress: true,
   poweredByHeader: false,
@@ -31,13 +45,30 @@ const nextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
-      // NOTE: /uploads used to carry an immutable one-year Cache-Control here.
-      // It was removed on purpose: config headers OVERRIDE the handler's own
-      // header, so a missing photo (which the handler answers with a
-      // short-lived placeholder) was pinned in every browser for a year —
-      // recovering the real bytes later would have shown nothing. The handler
-      // at src/app/uploads/[...path]/route.ts now sets the cache header
-      // per-response: a year for a real image, minutes for a placeholder.
+      /**
+       * Cache uploaded images in the browser.
+       *
+       * Left to itself, Next's static layer answers /uploads with
+       * `max-age=0`, and the optimiser answered `max-age=60` — so every
+       * product photo expired almost immediately and was re-downloaded on
+       * every navigation. That is what made category and product pages feel
+       * slow on every click instead of only the first.
+       *
+       * One hour, NOT the immutable year this file used to carry. Config
+       * headers override the handler's own per-response header, so whatever
+       * is written here also applies to the placeholder served for a missing
+       * photo. A year pinned a broken image in every browser — the bug
+       * documented above — whereas an hour keeps real images off the wire
+       * for a normal browsing session and still lets a photo restored at the
+       * same URL reappear within the hour. `must-revalidate` stops that
+       * hour decaying into indefinite stale use.
+       */
+      {
+        source: "/uploads/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=3600, must-revalidate" },
+        ],
+      },
     ];
   },
 };

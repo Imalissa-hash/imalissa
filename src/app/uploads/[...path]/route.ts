@@ -165,6 +165,23 @@ async function serve(req: NextRequest, ctx: Ctx, withBody: boolean) {
   if (row?.bytes?.length) {
     const bytes = Buffer.from(row.bytes);
     if (isImage(bytes, row.mime || declared)) {
+      /**
+       * Write the durable copy back to disk so the NEXT request is answered
+       * by layer 1 instead of MySQL.
+       *
+       * Without this, an image Render's deploy wiped is re-fetched from the
+       * remote database on literally every hit — measured at ~2.0s warm for a
+       * banner, i.e. it never got faster, because the transfer repeated each
+       * time. Worse, the image optimizer fetches the SOURCE once per size
+       * variant, so a category page paid that round trip a dozen times for
+       * the same photo.
+       *
+       * Best-effort by design: if the write fails the bytes are still served
+       * right now, which is what the visitor asked for. It mirrors how layer 3
+       * already caches a remote fetch, so the two layers behave alike.
+       */
+      await fsp.mkdir(path.dirname(filePath), { recursive: true }).catch(() => {});
+      await fsp.writeFile(filePath, bytes).catch(() => {});
       return respond(
         withBody ? bytes : null,
         bytes.length,

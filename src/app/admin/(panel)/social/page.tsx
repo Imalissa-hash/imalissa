@@ -42,7 +42,9 @@ export default async function AdminSocialPage({
     const v = sp[k];
     return typeof v === "string" ? v : "";
   };
-  const box = BOXES.includes(one("box")) ? one("box") : "unread";
+  const rawBox = one("box");
+  const boxExplicit = BOXES.includes(rawBox);
+  const box = boxExplicit ? rawBox : "unread";
   const q = one("q").trim();
   const requestedPage = Math.max(1, Number(one("page")) || 1);
 
@@ -50,7 +52,7 @@ export default async function AdminSocialPage({
     getSettingGroup("social"),
     // Read once so the banner and the list can never disagree.
     Promise.resolve(socialConfigured()),
-    loadInbox({ box, q, requestedPage }),
+    loadInbox({ box, boxExplicit, q, requestedPage }),
   ]);
 
   const subtitle = cfg.canVerify
@@ -67,6 +69,7 @@ export default async function AdminSocialPage({
         totalPages={inbox.totalPages}
         page={inbox.page}
         searchParams={sp}
+        activeBox={inbox.effectiveBox}
         connected={cfg.canVerify}
         canSend={cfg.canSend}
         missing={cfg.missing}
