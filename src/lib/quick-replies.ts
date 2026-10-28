@@ -1,12 +1,13 @@
 /**
  * Canned replies for the Social Inbox composer.
  *
- * Deliberately hard-coded rather than stored in settings: these are the
- * handful of sentences a shop repeats all day, and an editable list would
- * need its own admin screen, permission and audit path for very little value.
- * A saved reply the owner cannot find is worse than one they must edit.
+ * The LIVE list is no longer this file — it lives in settings so the owner can
+ * add, edit, reorder and delete replies from Admin → Social → Quick replies
+ * without a code change. This module holds only the STARTER set: what a fresh
+ * install gets, and what the settings group falls back to if the stored row is
+ * ever missing or unreadable.
  *
- * Two rules the copy follows:
+ * Two rules the starter copy follows:
  *
  * 1. No prices, stock or delivery fees. Those change, and a canned message
  *    that quotes a stale price is a promise the shop breaks — the admin
@@ -14,10 +15,17 @@
  * 2. No URLs. The site may move to its custom domain, and a hard-coded link
  *    in a message already sent cannot be corrected afterwards.
  *
- * `label` is the short button text; `text` is what lands in the composer,
- * and it can be edited before sending — nothing here auto-sends.
+ * `label` is the short button text; `text` is what lands in the composer, and
+ * it can be edited before sending — nothing here auto-sends.
  */
-export const QUICK_REPLIES: { label: string; text: string }[] = [
+export type QuickReply = {
+  /** Short button text shown in the right-hand list. */
+  label: string;
+  /** Full message dropped into the composer when the button is pressed. */
+  text: string;
+};
+
+export const DEFAULT_QUICK_REPLIES: QuickReply[] = [
   {
     label: "সালাম",
     text: "আসসালামু আলাইকুম। ইমালিসায় যোগাযোগ করার জন্য ধন্যবাদ। 🙏",

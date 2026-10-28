@@ -79,6 +79,7 @@ export default async function AdminSocialPage({
         selectedId={null}
         thread={null}
         sender={null}
+        quickReplies={settings.quickReplies}
       />
     </div>
   );

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Panel, Empty, SearchInput, Tabs, BusyBtn, TextArea } from "@/components/admin/ui";
 import { Pagination } from "@/components/ui/Pagination";
 import { cn, formatDate, timeAgo } from "@/lib/utils";
-import { QUICK_REPLIES } from "./quick-replies";
+import type { QuickReply } from "@/lib/quick-replies";
 import type { ConversationRow, ThreadMessage, InboxCounts } from "./types";
 
 /**
@@ -48,6 +48,7 @@ export function SocialClient({
   selectedId,
   thread,
   sender,
+  quickReplies,
 }: {
   items: ConversationRow[];
   counts: InboxCounts;
@@ -71,6 +72,11 @@ export function SocialClient({
   selectedId: string | null;
   thread: ThreadMessage[] | null;
   sender: { name: string; id: string; channel: string } | null;
+  /**
+   * Canned replies from settings — passed down rather than imported so the
+   * admin can edit them (Admin → Social → Quick replies) without a redeploy.
+   */
+  quickReplies: QuickReply[];
 }) {
   const router = useRouter();
   const get = (k: string) => {
@@ -473,18 +479,31 @@ export function SocialClient({
           </Panel>
 
           <Panel padded className="space-y-3">
-            <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-mist-600">
-              Quick replies
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-mist-600">
+                Quick replies
+              </p>
+              <Link
+                href="/admin/social/quick-replies"
+                className="text-[0.7rem] font-semibold text-gold-400 transition hover:text-gold-300"
+              >
+                Manage
+              </Link>
+            </div>
             {!canSend ? (
               <p className="text-[0.78rem] leading-relaxed text-mist-500">
                 Unavailable while replies are read-only.
               </p>
             ) : (
               <div className="flex flex-col gap-2">
-                {QUICK_REPLIES.map((qr) => (
+                {quickReplies.length === 0 && (
+                  <p className="text-[0.78rem] leading-relaxed text-mist-500">
+                    No saved replies yet.
+                  </p>
+                )}
+                {quickReplies.map((qr, i) => (
                   <button
-                    key={qr.label}
+                    key={`${i}-${qr.label}`}
                     type="button"
                     disabled={!selectedId}
                     onClick={() => insertQuick(qr.text)}

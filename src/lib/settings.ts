@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { DEFAULT_QUICK_REPLIES, type QuickReply } from "./quick-replies";
 
 /**
  * Site settings live in the DB (key → JSON value) so the admin panel can
@@ -91,6 +92,13 @@ export interface SettingsShape {
     verifyToken: string;
     /** Numeric Facebook Page id. Display + which page we claim; not secret. */
     pageId: string;
+    /**
+     * Canned replies offered beside the composer. Admin-editable from
+     * Admin → Social → Quick replies; falls back to the starter set when the
+     * stored row is absent. Text only — never a secret, never a URL by policy
+     * (see src/lib/quick-replies.ts).
+     */
+    quickReplies: QuickReply[];
   };
 }
 
@@ -167,6 +175,7 @@ export const DEFAULT_SETTINGS: SettingsShape = {
   social: {
     verifyToken: "",
     pageId: "",
+    quickReplies: DEFAULT_QUICK_REPLIES,
   },
 };
 

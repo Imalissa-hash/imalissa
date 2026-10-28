@@ -89,6 +89,7 @@ export default async function AdminSocialThreadPage({
           id: thread.anchor.senderId,
           channel: thread.anchor.channel,
         }}
+        quickReplies={settings.quickReplies}
       />
     </div>
   );
