@@ -163,6 +163,7 @@ model User {
   recentlyViewed  RecentlyViewed[]
   couponUsages    CouponUsage[]
   chatThreads     ChatThread[]
+  walletEntries   WalletEntry[]
 
   @@index([createdAt])
 }
@@ -512,6 +513,8 @@ model Order {
   mapping     ExternalOrderMapping?
   couponUsage CouponUsage?
   notification Notification[]
+  walletEntries WalletEntry[]
+  cashEntries   CashEntry[]
 
   @@index([userId, placedAt])
   @@index([status, placedAt])
@@ -993,4 +996,87 @@ model ChatMessage {
 model OrderSequence {
   year Int @id
   seq  Int @default(0)
+}
+
+// ------------------------------------------------------------
+// Finance — customer wallet + shop cash book
+//
+// Both are append-only ledgers with a running balance stored on every
+// row (`balanceAfter`), the same shape as InventoryLog. A balance is
+// never edited in place: a mistake is corrected by posting the opposite
+// entry, so the history always adds up to the number shown on screen.
+//
+// Amounts are SIGNED decimals — positive credits the account, negative
+// debits it. Storing the sign rather than an in/out flag means the
+// balance is one SUM() and a zero row is impossible to mis-read.
+// ------------------------------------------------------------
+
+enum WalletEntryType {
+  /// Admin added credit (promo, goodwill, correction).
+  TOPUP
+  /// Refund for an order, credited to the wallet instead of paid out.
+  REFUND
+  /// Balance spent paying for an order.
+  ORDER_PAYMENT
+  /// Admin took the balance out (withdrawn as cash/bKash).
+  WITHDRAW
+  /// Correction posted against an earlier mistake.
+  ADJUSTMENT
+}
+
+model WalletEntry {
+  id           String          @id @default(cuid())
+  userId       String
+  type         WalletEntryType
+  amount       Decimal         @db.Decimal(12, 2)
+  balanceAfter Decimal         @db.Decimal(12, 2)
+  orderId      String?
+  note         String?         @db.VarChar(300)
+  /// The admin who posted it — null only for system-generated entries.
+  actorId      String?
+  createdAt    DateTime        @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+enum CashEntryType {
+  /// An order was marked paid — money received.
+  ORDER_PAYMENT
+  /// An order was paid out of a customer's wallet balance.
+  WALLET_SPEND
+  /// Credit handed to a customer's wallet.
+  WALLET_TOPUP
+  /// Refund paid out to a customer.
+  REFUND
+  /// Wallet balance withdrawn by a customer.
+  WITHDRAWAL
+  /// Owner put their own money in.
+  DEPOSIT
+  /// Running cost (shipping, ads, packaging…).
+  EXPENSE
+  /// Correction posted against an earlier mistake.
+  ADJUSTMENT
+}
+
+model CashEntry {
+  id           String        @id @default(cuid())
+  type         CashEntryType
+  amount       Decimal       @db.Decimal(12, 2)
+  balanceAfter Decimal       @db.Decimal(12, 2)
+  orderId      String?
+  /// The customer involved, for wallet movements.
+  userId       String?
+  note         String?       @db.VarChar(300)
+  actorId      String?
+  createdAt    DateTime      @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([orderId])
 }

@@ -31,6 +31,8 @@ import {
   Users,
   X,
   RefreshCcw,
+  Wallet,
+  Landmark,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { AlertBell } from "@/components/admin/AlertBell";
@@ -74,6 +76,13 @@ const NAV: NavSection[] = [
       { href: "/admin/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view" },
       { href: "/admin/sync", label: "Sync Center", icon: RefreshCcw, perm: "sync.view" },
       { href: "/admin/coupons", label: "Coupons", icon: Gift, perm: "coupons.view" },
+    ],
+  },
+  {
+    title: "Money",
+    items: [
+      { href: "/admin/cashbook", label: "Cash Book", icon: Landmark, perm: "orders.view" },
+      { href: "/admin/wallets", label: "Customer Wallets", icon: Wallet, perm: "customers.view" },
     ],
   },
   {
